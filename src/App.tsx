@@ -1,0 +1,552 @@
+import { useEffect, useCallback, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+
+// 将 invoke 暴露到全局，方便在控制台调试
+(window as any).tauriInvoke = invoke;
+
+import { Layout } from "./components/Layout";
+import { Header } from "./components/Header";
+import { Sidebar } from "./components/Sidebar";
+import { Gallery } from "./components/Gallery";
+import { ImageViewer } from "./components/ImageViewer";
+import { ImageDetail } from "./pages/ImageDetail";
+import { useGalleryStore } from "./stores/gallery";
+import { Image, Tag, TagTreeNode, getAllTags, getTagTree, getAllImages, getImagesBatch } from "./api/tags";
+import { searchImages, getSearchIndexStatus, rebuildSearchIndex } from "./api/search";
+import { 
+  Location, 
+  getAllLocations, 
+  addLocation, 
+  deleteLocation as deleteLocationApi,
+  scanLocation 
+} from "./api/locations";
+
+// 重新导出Location类型
+export type { Location } from "./api/locations";
+
+function MainApp() {
+  const store = useGalleryStore();
+  const [availableTags, setAvailableTags] = useState<Tag[]>([]);
+  const [tagTree, setTagTree] = useState<TagTreeNode[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [imageCount, setImageCount] = useState(0);
+  const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
+  
+  // 删除位置确认弹窗状态
+  const [deleteLocationDialog, setDeleteLocationDialog] = useState<{
+    isOpen: boolean;
+    locationId: number | null;
+    locationName: string;
+  }>({ isOpen: false, locationId: null, locationName: "" });
+
+  // 搜索索引重建提示
+  const [showRebuildIndexPrompt, setShowRebuildIndexPrompt] = useState(false);
+  const [isRebuildingIndex, setIsRebuildingIndex] = useState(false);
+
+  // 分批加载图片元数据
+  const BATCH_SIZE = 500; // 每批加载500张
+  const [loadProgress, setLoadProgress] = useState({ loaded: 0, total: 0 });
+
+  const loadAllImages = useCallback(async () => {
+    try {
+      store.setLoading(true);
+      
+      // 先获取总数
+      const totalCount = await invoke<number>("count_images");
+      setImageCount(totalCount);
+      setLoadProgress({ loaded: 0, total: totalCount });
+      
+      // 如果少于1000张，一次性加载
+      if (totalCount <= 1000) {
+        const allImages = await getAllImages(store.sortBy, store.sortOrder);
+        store.setAllImages(allImages);
+        setLoadProgress({ loaded: allImages.length, total: totalCount });
+      } else {
+        // 分批加载（用于1万张以上）
+        const allImages: Array<Image> = [];
+        let offset = 0;
+        
+        // 先加载第一批（500张），让用户快速看到内容
+        const firstBatch = await getImagesBatch(0, BATCH_SIZE, store.sortBy, store.sortOrder);
+        allImages.push(...firstBatch);
+        store.setAllImages([...allImages]); // 先显示第一批
+        setLoadProgress({ loaded: firstBatch.length, total: totalCount });
+        
+        // 后台继续加载剩余数据
+        offset = BATCH_SIZE;
+        while (offset < totalCount) {
+          const batch = await getImagesBatch(offset, BATCH_SIZE, store.sortBy, store.sortOrder);
+          if (batch.length === 0) break;
+          allImages.push(...batch);
+          store.setAllImages([...allImages]);
+          setLoadProgress({ loaded: allImages.length, total: totalCount });
+          offset += BATCH_SIZE;
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load all images:", error);
+    } finally {
+      store.setLoading(false);
+      setIsLoading(false);
+    }
+  }, [store.sortBy, store.sortOrder]);
+
+  // 根据当前页码更新可见图片（虚拟滚动）
+  useEffect(() => {
+    if (store.allImages.length === 0) return;
+    
+    // 如果处于搜索模式，不要从 allImages 切片（搜索结果已由 handleSearch 设置）
+    if (store.isSearching || store.searchQuery || store.selectedTagIds.length > 0) {
+      return;
+    }
+    
+    const start = store.currentPage * store.pageSize;
+    const end = start + store.pageSize * 3; // 预加载3页
+    const visibleImages = store.allImages.slice(start, end);
+    store.setImages(visibleImages);
+  }, [store.allImages, store.currentPage, store.pageSize, store.isSearching, store.searchQuery, store.selectedTagIds]);
+
+  // 加载更多图片（滚动时调用）
+  const loadMoreImages = useCallback(() => {
+    // 搜索模式下不支持加载更多
+    if (store.isSearching) {
+      return;
+    }
+    
+    if ((store.currentPage + 1) * store.pageSize < store.allImages.length) {
+      store.setCurrentPage(store.currentPage + 1);
+    }
+  }, [store.currentPage, store.pageSize, store.allImages.length, store.isSearching]);
+
+  // 刷新图片（排序变化时）
+  const loadImages = useCallback(async () => {
+    // 清空现有数据，重新加载
+    store.setAllImages([]);
+    store.setImages([]);
+    store.setCurrentPage(0);
+    setLoadProgress({ loaded: 0, total: 0 });
+    await loadAllImages();
+  }, [loadAllImages]);
+
+  // 加载标签和位置
+  const loadSidebarData = useCallback(async () => {
+    try {
+      const [tags, tree, locs] = await Promise.all([
+        getAllTags(),
+        getTagTree(),
+        getAllLocations(),
+      ]);
+      setAvailableTags(tags);
+      setTagTree(tree);
+      setLocations(locs);
+    } catch (error) {
+      console.error("Failed to load sidebar data:", error);
+    }
+  }, []);
+
+  // 初始加载
+  useEffect(() => {
+    loadAllImages();
+    loadSidebarData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 排序变化时重新加载
+  useEffect(() => {
+    // 跳过初始渲染（当allImages为空时）
+    if (store.allImages.length === 0 && !store.isLoading) return;
+    
+    // 清空数据并重新加载
+    loadImages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.sortBy, store.sortOrder]);
+
+  // 标签选择变化时触发搜索
+  useEffect(() => {
+    // 跳过初始渲染
+    if (store.allImages.length === 0) return;
+    
+    // 如果有选中的标签，执行搜索
+    if (store.selectedTagIds.length > 0 || store.searchQuery) {
+      handleSearch(store.searchQuery);
+    } else {
+      // 清空筛选，显示所有图片
+      store.clearSearch();
+      store.setImages(store.allImages.slice(0, store.pageSize * 3));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.selectedTagIds]);
+
+  // 搜索处理
+  const handleSearch = useCallback(
+    async (query: string) => {
+      store.setSearchQuery(query);
+      
+      if (!query && store.selectedTagIds.length === 0) {
+        // 清空搜索，显示所有图片
+        store.clearSearch();
+        store.setImages(store.allImages.slice(0, store.pageSize * 3));
+        return;
+      }
+
+      // 如果图片还未加载完成，提示用户
+      if (store.allImages.length === 0) {
+        console.log("Images not loaded yet, please wait...");
+        return;
+      }
+
+      try {
+        store.setLoading(true);
+        console.log("Searching with query:", query, "tag_ids:", store.selectedTagIds);
+        const results = await searchImages({
+          text: query,
+          tag_ids: store.selectedTagIds || [],
+          exclude_tag_ids: [],
+          limit: 1000, // 搜索最多返回1000条
+          offset: 0,
+        });
+        console.log("Search results:", results);
+
+        // 存储搜索结果ID
+        store.setSearchResults(results);
+        
+        // 从allImages中过滤出搜索结果
+        const resultIds = new Set(results.hits.map((h: { image_id: number }) => String(h.image_id)));
+        console.log("Result IDs from search:", Array.from(resultIds));
+        console.log("All images count:", store.allImages.length);
+        
+        const filtered = store.allImages.filter((img) => {
+          const match = resultIds.has(String(img.id));
+          if (match) {
+            console.log("Matched image:", img.id, img.file_name);
+          }
+          return match;
+        });
+        
+        console.log("Filtered count:", filtered.length);
+        console.log("Setting images to store:", filtered.map(img => img.id));
+        
+        // 如果搜索有结果但过滤后为0，说明索引和数据库不同步
+        if (results.hits.length > 0 && filtered.length === 0) {
+          console.warn("Search index out of sync with database. Consider rebuilding index.");
+          setShowRebuildIndexPrompt(true);
+        }
+        
+        // 显示过滤后的图片
+        store.setImages(filtered.slice(0, store.pageSize * 3));
+        store.setCurrentPage(0);
+      } catch (error) {
+        console.error("Search failed:", error);
+      } finally {
+        store.setLoading(false);
+      }
+    },
+    [store]
+  );
+
+  // 重建搜索索引
+  const handleRebuildIndex = useCallback(async () => {
+    try {
+      setIsRebuildingIndex(true);
+      const indexed = await rebuildSearchIndex();
+      console.log(`Rebuilt search index: ${indexed} images indexed`);
+      setShowRebuildIndexPrompt(false);
+      // 重新执行搜索
+      if (store.searchQuery) {
+        handleSearch(store.searchQuery);
+      }
+    } catch (error) {
+      console.error("Failed to rebuild index:", error);
+      alert("重建索引失败: " + error);
+    } finally {
+      setIsRebuildingIndex(false);
+    }
+  }, [store.searchQuery, handleSearch]);
+
+  // 打开删除位置确认弹窗
+  const handleDeleteLocation = useCallback((id: number) => {
+    const location = locations.find((loc) => loc.id === id);
+    if (location) {
+      setDeleteLocationDialog({
+        isOpen: true,
+        locationId: id,
+        locationName: location.name,
+      });
+    }
+  }, [locations]);
+  
+  // 确认删除位置
+  const confirmDeleteLocation = useCallback(async () => {
+    if (!deleteLocationDialog.locationId) return;
+    
+    try {
+      await deleteLocationApi(deleteLocationDialog.locationId);
+      setLocations((prev) => prev.filter((loc) => loc.id !== deleteLocationDialog.locationId));
+      // 重新加载图片列表，因为删除位置会删除相关图片
+      await loadImages();
+      // 关闭弹窗
+      setDeleteLocationDialog({ isOpen: false, locationId: null, locationName: "" });
+    } catch (error) {
+      console.error("Failed to delete location:", error);
+      alert("删除失败: " + error);
+    }
+  }, [deleteLocationDialog.locationId, loadImages]);
+
+  // 扫描位置
+  const handleScanLocation = useCallback(async (id: number) => {
+    try {
+      store.setLoading(true);
+      const result = await scanLocation(id);
+      
+      alert(
+        `扫描完成！\n` +
+        `扫描文件: ${result.scanned}\n` +
+        `成功导入: ${result.imported}\n` +
+        `失败: ${result.failed}\n` +
+        `跳过: ${result.skipped}`
+      );
+      
+      // 刷新图片列表和位置数据
+      await loadImages();
+      await loadSidebarData();
+    } catch (error) {
+      console.error("Failed to scan location:", error);
+      alert("扫描失败: " + error);
+    } finally {
+      store.setLoading(false);
+    }
+  }, [loadImages, loadSidebarData]);
+
+  // 添加位置
+  const handleAddLocation = useCallback(async () => {
+    try {
+      const newLocation = await addLocation();
+      if (newLocation) {
+        setLocations((prev) => [...prev, newLocation]);
+        // 自动扫描新添加的位置
+        await handleScanLocation(newLocation.id);
+      }
+    } catch (error) {
+      console.error("Failed to add location:", error);
+      alert("添加位置失败");
+    }
+  }, [handleScanLocation]);
+
+  // 头部组件
+  const HeaderComponent = (
+    <Header
+      totalCount={imageCount}
+      searchQuery={store.searchQuery}
+      onSearchChange={handleSearch}
+      onRefresh={() => {
+        store.setCurrentPage(0);
+        loadImages();
+        loadSidebarData();
+      }}
+      viewMode={store.viewMode}
+      onViewModeChange={store.setViewMode}
+      sortBy={store.sortBy}
+      onSortChange={store.setSortBy}
+    />
+  );
+
+  // 侧边栏组件
+  const SidebarComponent = (
+    <Sidebar
+      locations={locations}
+      tagTree={tagTree}
+      selectedLocationId={selectedLocationId}
+      selectedTagId={
+        store.selectedTagIds.length === 1 ? store.selectedTagIds[0] : null
+      }
+      selectedTagIds={store.selectedTagIds}
+      onSelectLocation={(location) => {
+        setSelectedLocationId(location.id);
+        // TODO: 根据位置筛选图片
+      }}
+      onSelectTag={(tag, isCtrlClick) => {
+        if (isCtrlClick) {
+          // Ctrl+点击：多选模式
+          store.toggleTagSelection(tag.id);
+        } else {
+          // 普通点击：单选模式
+          if (store.selectedTagIds.length === 1 && store.selectedTagIds[0] === tag.id) {
+            // 再次点击已选中的标签：取消选择
+            store.setSelectedTagIds([]);
+          } else {
+            store.setSelectedTagIds([tag.id]);
+          }
+        }
+      }}
+      onAddLocation={handleAddLocation}
+      onDeleteLocation={handleDeleteLocation}
+      onScanLocation={handleScanLocation}
+      onTagMoved={loadSidebarData}
+      onTagDeleted={loadSidebarData}
+    />
+  );
+
+  // 主内容
+  const MainContent = (
+    <>
+      <Gallery
+        onLoadMore={loadMoreImages}
+        onRefresh={loadImages}
+        availableTags={availableTags}
+      />
+      <ImageViewer />
+    </>
+  );
+
+  if (isLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-white">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-gray-200 border-t-primary-500 rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-gray-500 text-sm">加载中...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <Layout
+        header={HeaderComponent}
+        sidebar={SidebarComponent}
+        mainContent={MainContent}
+      />
+      
+      {/* 删除位置确认弹窗 */}
+      {deleteLocationDialog.isOpen && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-white rounded-lg shadow-xl w-[400px]">
+            {/* 标题 */}
+            <div className="px-4 py-3 border-b">
+              <h3 className="text-lg font-medium text-gray-900">确认删除位置</h3>
+            </div>
+
+            {/* 内容 */}
+            <div className="p-4">
+              <p className="text-gray-600">
+                确定要删除位置 <span className="font-medium text-gray-900">"{deleteLocationDialog.locationName}"</span> 吗？
+              </p>
+              <p className="text-sm text-gray-500 mt-2">
+                删除位置将同时删除该位置下的所有图片记录（标签关联会保留）。
+              </p>
+            </div>
+
+            {/* 底部按钮 */}
+            <div className="px-4 py-3 border-t flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteLocationDialog({ isOpen: false, locationId: null, locationName: "" })}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmDeleteLocation}
+                className="px-4 py-2 text-sm bg-red-500 text-white hover:bg-red-600 rounded-lg transition-colors"
+              >
+                删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 搜索索引重建提示 */}
+      {showRebuildIndexPrompt && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-white rounded-lg shadow-xl w-[420px]">
+            {/* 标题 */}
+            <div className="px-4 py-3 border-b">
+              <h3 className="text-lg font-medium text-gray-900">搜索索引需要重建</h3>
+            </div>
+
+            {/* 内容 */}
+            <div className="p-4">
+              <p className="text-gray-600">
+                检测到搜索索引与数据库不同步，可能导致搜索结果无法显示。
+              </p>
+              <p className="text-sm text-gray-500 mt-2">
+                建议重建搜索索引以修复此问题。重建过程可能需要一些时间，取决于图片数量。
+              </p>
+            </div>
+
+            {/* 底部按钮 */}
+            <div className="px-4 py-3 border-t flex justify-end gap-2">
+              <button
+                onClick={() => setShowRebuildIndexPrompt(false)}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                disabled={isRebuildingIndex}
+              >
+                稍后再说
+              </button>
+              <button
+                onClick={handleRebuildIndex}
+                disabled={isRebuildingIndex}
+                className="px-4 py-2 text-sm bg-primary-500 text-white hover:bg-primary-600 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {isRebuildingIndex && (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                )}
+                {isRebuildingIndex ? "重建中..." : "重建索引"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function App() {
+  const store = useGalleryStore();
+
+  return (
+    <div style={{ position: "relative", height: "100vh", overflow: "hidden" }}>
+      {/* 主应用界面（始终挂载，保持状态） */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          transform: store.isDetailOpen ? "translateX(-20px)" : "translateX(0)",
+          opacity: store.isDetailOpen ? 0.5 : 1,
+          transition: "transform 0.3s ease, opacity 0.3s ease",
+          pointerEvents: store.isDetailOpen ? "none" : "auto",
+        }}
+      >
+        <MainApp />
+      </div>
+
+      {/* 详情页（从右侧滑入的覆盖层） */}
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: "100%",
+          transform: store.isDetailOpen ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 0.3s ease",
+          zIndex: 100,
+          background: "white",
+        }}
+      >
+        {store.detailImageId && (
+          <ImageDetail imageId={store.detailImageId} onClose={store.closeDetail} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default App;

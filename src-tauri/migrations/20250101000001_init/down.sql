@@ -1,0 +1,8 @@
+-- 回滚初始化迁移
+
+DROP TABLE IF EXISTS settings;
+DROP TABLE IF EXISTS thumbnails;
+DROP TABLE IF EXISTS locations;
+DROP TABLE IF EXISTS image_tags;
+DROP TABLE IF EXISTS tags;
+DROP TABLE IF EXISTS images;
