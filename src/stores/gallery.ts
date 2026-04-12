@@ -27,10 +27,13 @@ export interface GalleryState {
   sortBy: "created_at" | "modified_at" | "file_name" | "file_size";
   sortOrder: "asc" | "desc";
   searchResultIds: number[]; // 搜索结果图片ID列表
+  searchVersion: number; // 搜索版本号，用于防止异步竞态条件
   
   // 预览状态
   previewImageId: number | null;
   isPreviewOpen: boolean;
+  // 保存用于恢复视图的滚动位置（像素）
+  savedScrollTop: number | null;
   
   // 详情页状态
   detailImageId: number | null;
@@ -65,6 +68,7 @@ export interface GalleryState {
   setCurrentPage: (page: number) => void;
   incrementPage: () => void;
   reset: () => void;
+  setSavedScrollTop: (pos: number | null) => void;
   // 右键菜单操作
   renameImage: (imageId: number, newName: string) => Promise<void>;
   addTagsToImages: (imageIds: number[], tagIds: number[], newTagNames?: string[], onSuccess?: () => void) => Promise<void>;
@@ -89,6 +93,7 @@ const initialState = {
   sortBy: "modified_at" as const,
   sortOrder: "desc" as const,
   searchResultIds: [] as number[],
+  searchVersion: 0,
   previewImageId: null,
   isPreviewOpen: false,
   detailImageId: null,
@@ -146,16 +151,16 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
 
   setViewMode: (mode) => set({ viewMode: mode }),
 
-  setSearchQuery: (query) => set({ searchQuery: query, currentPage: 0 }),
+  setSearchQuery: (query) => set((state) => ({ searchQuery: query, currentPage: 0, searchVersion: state.searchVersion + 1 })),
 
-  setSelectedTagIds: (ids) => set({ selectedTagIds: ids, currentPage: 0 }),
+  setSelectedTagIds: (ids) => set((state) => ({ selectedTagIds: ids, currentPage: 0, searchVersion: state.searchVersion + 1 })),
 
   toggleTagSelection: (id) =>
     set((state) => {
       const newIds = state.selectedTagIds.includes(id)
         ? state.selectedTagIds.filter((i) => i !== id)
         : [...state.selectedTagIds, id];
-      return { selectedTagIds: newIds, currentPage: 0 };
+      return { selectedTagIds: newIds, currentPage: 0, searchVersion: state.searchVersion + 1 };
     }),
 
   setSortBy: (sort) => set({ sortBy: sort, currentPage: 0 }),
@@ -241,6 +246,8 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
     set((state) => ({ currentPage: state.currentPage + 1 })),
 
   reset: () => set(initialState),
+
+  setSavedScrollTop: (pos: number | null) => set({ savedScrollTop: pos }),
 
   // 打开详情页面（作为覆盖层，保持列表状态）
   openDetail: (imageId) =>

@@ -78,6 +78,9 @@ export function Gallery({ onLoadMore, onRefresh, availableTags = [] }: GalleryPr
     rootMargin: "200px",
   });
 
+  // 记录上一次 isSearching 状态，用于检测搜索开始/结束的切换
+  const prevIsSearching = useRef<boolean>(false);
+
   useEffect(() => {
     // 如果有更多图片（基于 allImages），触发加载更多
     const hasMoreImages = store.allImages.length > store.images.length;
@@ -85,6 +88,31 @@ export function Gallery({ onLoadMore, onRefresh, availableTags = [] }: GalleryPr
       onLoadMore?.();
     }
   }, [inView, store.hasMore, store.isLoading, onLoadMore]);
+
+  // 在搜索开始时保存滚动位置；搜索结束时尝试恢复
+  useEffect(() => {
+    const isSearching = store.isSearching || (store.searchQuery && store.searchQuery.length > 0);
+    // 搜索开始：保存 scrollTop
+    if (!prevIsSearching.current && isSearching) {
+      const pos = containerRef.current ? containerRef.current.scrollTop : 0;
+      store.setSavedScrollTop(pos);
+    }
+
+    // 搜索结束：恢复 scrollTop（如果有保存）
+    if (prevIsSearching.current && !isSearching) {
+      const saved = store.savedScrollTop;
+      if (saved !== null && containerRef.current) {
+        // 延迟一帧等待内容渲染
+        requestAnimationFrame(() => {
+          containerRef.current!.scrollTop = saved;
+          // 清空保存的值
+          store.setSavedScrollTop(null);
+        });
+      }
+    }
+
+    prevIsSearching.current = isSearching;
+  }, [store.isSearching, store.searchQuery, store.savedScrollTop, store]);
 
   // 处理图片点击
   const handleImageClick = (imageId: number, event?: React.MouseEvent) => {

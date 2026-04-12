@@ -26,6 +26,9 @@ export function Header({
   onSortChange,
 }: HeaderProps) {
   const store = useGalleryStore();
+  // 计算显示的总数：搜索/筛选时显示当前 images 长度，否则显示 allImages 的总数
+  const isFiltering = store.isSearching || !!store.searchQuery || store.selectedTagIds.length > 0;
+  const displayTotalCount = isFiltering ? store.images.length : (store.allImages.length || totalCount);
   const selectedCount = store.selectedIds.size;
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -100,10 +103,10 @@ export function Header({
             <Images className="w-4 h-4" />
             <span className="font-medium">{selectedCount}</span>
             <span className="text-primary-500">/</span>
-            <span>{totalCount}</span>
+            <span>{displayTotalCount}</span>
           </div>
         ) : (
-          <span className="text-sm text-gray-500 px-3">{totalCount} 张图片</span>
+          <span className="text-sm text-gray-500 px-3">{displayTotalCount} 张图片</span>
         )}
 
         <div className="w-px h-6 bg-gray-200 mx-1" />

@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 // 将 invoke 暴露到全局，方便在控制台调试
@@ -47,6 +47,12 @@ function MainApp() {
   // 分批加载图片元数据
   const BATCH_SIZE = 500; // 每批加载500张
   const [loadProgress, setLoadProgress] = useState({ loaded: 0, total: 0 });
+
+  // 本地搜索 token，用于丢弃被取消或过时的搜索结果
+  const activeSearchToken = useRef(0);
+  // 在发起搜索前保存当前可见图片（用于取消搜索后恢复原始视图）
+  const prevVisibleImages = useRef<Image[] | null>(null);
+  const prevCurrentPage = useRef<number | null>(null);
 
   const loadAllImages = useCallback(async () => {
     try {
@@ -168,12 +174,25 @@ function MainApp() {
     if (store.allImages.length === 0) return;
     
     // 如果有选中的标签，执行搜索
-    if (store.selectedTagIds.length > 0 || store.searchQuery) {
+    if (store.selectedTagIds.length > 0) {
       handleSearch(store.searchQuery);
     } else {
-      // 清空筛选，显示所有图片
+      // 取消当前未完成的搜索（通过 token）
+      activeSearchToken.current += 1;
+      
+      // 清空标签选择时，也清空搜索状态
       store.clearSearch();
-      store.setImages(store.allImages.slice(0, store.pageSize * 3));
+
+      // 恢复为全部已加载的图片（以满足用户期望看到全部计数）
+      const restored = store.allImages.slice();
+      store.setImages(restored);
+      // 重置页码到第一页
+      store.setCurrentPage(0);
+
+      
+      // 清空本地快照
+      prevVisibleImages.current = null;
+      prevCurrentPage.current = null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.selectedTagIds]);
@@ -181,6 +200,14 @@ function MainApp() {
   // 搜索处理
   const handleSearch = useCallback(
     async (query: string) => {
+      // 生成本次搜索的 token，用于识别并丢弃被取消/过时的搜索结果
+      activeSearchToken.current += 1;
+      const token = activeSearchToken.current;
+
+      // 保存当前可见图片和页码，以便取消搜索时恢复
+      prevVisibleImages.current = store.images.slice();
+      prevCurrentPage.current = store.currentPage;
+
       store.setSearchQuery(query);
       
       if (!query && store.selectedTagIds.length === 0) {
@@ -192,7 +219,7 @@ function MainApp() {
 
       // 如果图片还未加载完成，提示用户
       if (store.allImages.length === 0) {
-        console.log("Images not loaded yet, please wait...");
+        
         return;
       }
 
@@ -206,26 +233,27 @@ function MainApp() {
           limit: 1000, // 搜索最多返回1000条
           offset: 0,
         });
-        console.log("Search results:", results);
+        // 如果 token 已被更新，说明本次搜索已被取消或有更新的搜索，忽略当前结果
+        if (token !== activeSearchToken.current) {
+          return;
+        }
 
         // 存储搜索结果ID
         store.setSearchResults(results);
         
         // 从allImages中过滤出搜索结果
         const resultIds = new Set(results.hits.map((h: { image_id: number }) => String(h.image_id)));
-        console.log("Result IDs from search:", Array.from(resultIds));
-        console.log("All images count:", store.allImages.length);
+        
         
         const filtered = store.allImages.filter((img) => {
           const match = resultIds.has(String(img.id));
           if (match) {
-            console.log("Matched image:", img.id, img.file_name);
+          
           }
           return match;
         });
         
-        console.log("Filtered count:", filtered.length);
-        console.log("Setting images to store:", filtered.map(img => img.id));
+        
         
         // 如果搜索有结果但过滤后为0，说明索引和数据库不同步
         if (results.hits.length > 0 && filtered.length === 0) {
@@ -236,6 +264,8 @@ function MainApp() {
         // 显示过滤后的图片
         store.setImages(filtered.slice(0, store.pageSize * 3));
         store.setCurrentPage(0);
+        // 使用全局 getState 读取最新状态，确保获取到已更新的值
+        
       } catch (error) {
         console.error("Search failed:", error);
       } finally {
@@ -366,9 +396,11 @@ function MainApp() {
         // TODO: 根据位置筛选图片
       }}
       onSelectTag={(tag, isCtrlClick) => {
+        
         if (isCtrlClick) {
           // Ctrl+点击：多选模式
           store.toggleTagSelection(tag.id);
+          
         } else {
           // 普通点击：单选模式
           if (store.selectedTagIds.length === 1 && store.selectedTagIds[0] === tag.id) {

@@ -212,6 +212,18 @@ export function TagTree({
     dropTargetId: number | null;
   }>({ draggedId: null, dropTargetId: null });
 
+  // 过滤标签树，只保留有文件关联的标签
+  const filterTagTree = useCallback((nodes: TagTreeNode[]): TagTreeNode[] => {
+    return nodes
+      .map((node) => ({
+        ...node,
+        children: filterTagTree(node.children),
+      }))
+      .filter((node) => node.image_count > 0 || node.children.length > 0);
+  }, []);
+
+  const filteredNodes = filterTagTree(nodes);
+
   const handleToggleExpand = useCallback((tagId: number) => {
     setExpandedTags((prev) => {
       const next = new Set(prev);
@@ -234,15 +246,15 @@ export function TagTree({
         }
       });
     };
-    collectIds(nodes);
+    collectIds(filteredNodes);
     setExpandedTags(allIds);
-  }, [nodes]);
+  }, [filteredNodes]);
 
   const collapseAll = useCallback(() => {
     setExpandedTags(new Set());
   }, []);
 
-  if (nodes.length === 0) {
+  if (filteredNodes.length === 0) {
     return (
       <div className={`p-4 text-center text-gray-500 ${className}`}>
         暂无标签
@@ -268,7 +280,7 @@ export function TagTree({
       </div>
       
       <div className="space-y-1">
-        {nodes.map((node) => (
+        {filteredNodes.map((node) => (
           <TagTreeItem
             key={node.id}
             node={node}
