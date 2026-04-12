@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { X, Settings, FolderInput, Info } from "lucide-react";
+import { X, Settings, FolderInput, Info, Upload } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 
 type TabId = "general" | "import" | "about";
 
@@ -131,6 +133,38 @@ function GeneralSettings() {
 
 // 导入设置
 function ImportSettings() {
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<any>(null);
+
+  const handleImportAllusion = async () => {
+    try {
+      setImporting(true);
+      setImportResult(null);
+
+      // 打开文件选择对话框
+      const selected = await open({
+        filters: [{
+          name: "Allusion Backup",
+          extensions: ["json"]
+        }]
+      });
+
+      if (!selected) return;
+
+      // 调用后端导入函数
+      const result = await invoke("import_allusion_data", {
+        filePath: selected
+      });
+
+      setImportResult(result);
+    } catch (error) {
+      console.error("Import failed:", error);
+      setImportResult({ error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="space-y-4">
@@ -176,6 +210,40 @@ function ImportSettings() {
               <p className="text-xs text-gray-500">创建副本，不覆盖原文件</p>
             </div>
           </label>
+        </div>
+      </div>
+
+      <div className="border-t pt-4">
+        <h4 className="text-sm font-medium text-gray-900 mb-4">Allusion 数据导入</h4>
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600">
+            从 Allusion 备份文件中导入标签数据。系统会根据文件哈希匹配图片并同步标签。
+          </p>
+          
+          <button
+            onClick={handleImportAllusion}
+            disabled={importing}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <Upload className="w-4 h-4" />
+            {importing ? "导入中..." : "导入 Allusion 数据"}
+          </button>
+
+          {importResult && (
+            <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+              <h5 className="text-sm font-medium text-gray-900 mb-2">导入结果</h5>
+              {importResult.error ? (
+                <p className="text-sm text-red-600">{importResult.error}</p>
+              ) : (
+                <div className="space-y-1 text-sm text-gray-700">
+                  <p>已导入: {importResult.imported} 个文件</p>
+                  <p>已跳过: {importResult.skipped} 个文件</p>
+                  <p>错误: {importResult.errors?.length || 0} 个</p>
+                  <p>备份中有标签的文件: {importResult.backup_files_with_tags} 个</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

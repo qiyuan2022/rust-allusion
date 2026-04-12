@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use sqlx::SqlitePool;
 use std::path::Path;
+use std::collections::HashSet;
 
 /// 迁移记录
 #[derive(Debug)]
@@ -17,9 +18,24 @@ pub async fn run_migrations(pool: &SqlitePool, migrations_dir: &str) -> Result<(
     
     // 获取所有迁移文件
     let migrations = load_migrations(migrations_dir)?;
+    let available_versions: HashSet<i32> = migrations.iter().map(|m| m.version).collect();
     
     // 获取已执行的迁移版本
     let executed_versions = get_executed_versions(pool).await?;
+    
+    // 清理不存在迁移文件的执行记录
+    for &version in &executed_versions {
+        if !available_versions.contains(&version) {
+            tracing::warn!(
+                "Migration {} is recorded as executed but file no longer exists, removing record",
+                version
+            );
+            sqlx::query("DELETE FROM _migrations WHERE version = ?1")
+                .bind(version)
+                .execute(pool)
+                .await?;
+        }
+    }
     
     // 执行待执行的迁移
     for migration in migrations {

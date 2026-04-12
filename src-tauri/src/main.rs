@@ -994,6 +994,196 @@ async fn rename_image(
 }
 
 #[tauri::command]
+async fn import_allusion_data(
+    state: State<'_, AppState>,
+    file_path: String,
+) -> Result<serde_json::Value, String> {
+    use std::collections::HashSet;
+    use std::fs;
+    use std::path::Path;
+    
+    let pool = state.db.lock().await;
+    tracing::info!("Starting Allusion import from {}", file_path);
+    
+    // 读取备份文件
+    let content = fs::read_to_string(&file_path)
+        .map_err(|e| format!("Failed to read backup file: {}", e))?;
+    
+    let backup: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+    
+    // 解析数据
+    let all_tables = backup["data"]["data"]
+        .as_array()
+        .ok_or("Invalid backup format")?;
+    
+    // 获取file_tables
+    let file_tables = all_tables.iter()
+        .find(|t| t["tableName"] == "files")
+        .and_then(|t| t["rows"].as_array())
+        .ok_or("Files table not found")?;
+    
+    tracing::info!("Found files table with {} rows", file_tables.len());
+    
+    // 诊断：打印所有表名
+    for (idx, table) in all_tables.iter().enumerate() {
+        let table_name = table["tableName"].as_str().unwrap_or("unknown");
+        let row_count = table["rows"].as_array().map(|r| r.len()).unwrap_or(0);
+        tracing::info!("Table {}: name={}, rows={}", idx, table_name, row_count);
+    }
+    
+    // 获取tags表
+    let tag_tables = all_tables.iter()
+        .find(|t| t["tableName"] == "tags")
+        .and_then(|t| t["rows"].as_array());
+    
+    if let Some(tags) = tag_tables {
+        tracing::info!("Found tags table with {} rows", tags.len());
+        // 打印前3个tag元素用于诊断
+        for (idx, tag) in tags.iter().take(3).enumerate() {
+            tracing::info!("Tag {}: {:?}", idx, tag);
+        }
+    } else {
+        tracing::warn!("Tags table not found in backup");
+    }
+    
+    // 构建 tag id 到 tag 名称的映射（id 是 UUID 字符串，不是 i64）
+    let mut tag_map = std::collections::HashMap::new();
+    if let Some(tags) = tag_tables {
+        for tag in tags {
+            if let (Some(id), Some(name)) = (tag["id"].as_str(), tag["name"].as_str()) {
+                tag_map.insert(id.to_string(), name.to_string());
+                tracing::debug!("Mapped tag: {} => {}", id, name);
+            } else {
+                // 诊断信息：记录为什么无法解析这个tag
+                let id_val = tag["id"].as_str().map(|v| format!("str({})", v)).or_else(|| tag["id"].as_i64().map(|v| format!("i64({})", v))).unwrap_or_else(|| "missing".to_string());
+                let name_val = tag["name"].as_str().map(|v| format!("'{}'", v)).unwrap_or_else(|| "missing".to_string());
+                tracing::warn!("Failed to parse tag: id_type={}, name_type={}, full={:?}", id_val, name_val, tag);
+            }
+        }
+    }
+    tracing::info!("Built tag_map with {} entries", tag_map.len());
+    
+    let mut imported = 0;
+    let mut skipped = 0;
+    let mut errors = Vec::new();
+    let mut backup_files_with_tags = 0;
+    
+    // 处理每个文件
+    for file in file_tables {
+        if let Some(absolute_path) = file["absolutePath"].as_str() {
+            // 先收集备份文件中的标签名称
+            let mut backup_tag_names = Vec::new();
+            if let Some(tags) = file["tags"].as_array() {
+                for tag_id in tags {
+                    if let Some(tag_id_str) = tag_id.as_str() {
+                        if let Some(tag_name) = tag_map.get(tag_id_str) {
+                            backup_tag_names.push(tag_name.clone());
+                        } else {
+                            tracing::warn!("Backup tag id {} not found in tag_map", tag_id_str);
+                        }
+                    }
+                }
+            }
+
+            // 如果没有标签，跳过此文件
+            if backup_tag_names.is_empty() {
+                skipped += 1;
+                continue;
+            }
+
+            // 标记有标签的文件
+            backup_files_with_tags += 1;
+            tracing::info!("Processing file with tags: {} => {:?}", absolute_path, backup_tag_names);
+
+            let path = Path::new(absolute_path);
+            if !path.exists() {
+                tracing::warn!("Skipping missing local file: {}", absolute_path);
+                skipped += 1;
+                continue;
+            }
+
+            let hash = match core::importer::compute_file_hash(path).await {
+                Ok(h) => h,
+                Err(e) => {
+                    errors.push(format!("Failed to hash {}: {}", absolute_path, e));
+                    continue;
+                }
+            };
+
+            tracing::info!("Backup tag names for {}: {:?}", absolute_path, backup_tag_names);
+
+            let existing_tags = db::TagRepository::get_tags_for_image(&pool, &hash)
+                .await
+                .map_err(|e| format!("DB error: {}", e))?;
+            let existing_tag_names: HashSet<String> = existing_tags.into_iter().map(|tag| tag.name).collect();
+            tracing::info!("Existing tag names for hash {}: {:?}", hash, existing_tag_names);
+            let backup_tag_names_set: HashSet<String> = backup_tag_names.iter().cloned().collect();
+
+            let to_add_names: Vec<String> = backup_tag_names_set
+                .difference(&existing_tag_names)
+                .cloned()
+                .collect();
+            let to_remove_names: Vec<String> = existing_tag_names
+                .difference(&backup_tag_names_set)
+                .cloned()
+                .collect();
+
+            tracing::info!("For hash {}: to_add_names={:?}, to_remove_names={:?}", hash, to_add_names, to_remove_names);
+
+            // 处理添加标签
+            if !to_add_names.is_empty() {
+                let mut tag_ids_to_add = Vec::new();
+                for tag_name in &to_add_names {
+                    let tag = match db::TagRepository::get_by_name(&pool, tag_name).await {
+                        Ok(Some(existing_tag)) => existing_tag,
+                        Ok(None) => {
+                            tracing::info!("Creating new tag {}", tag_name);
+                            let create_req = crate::models::CreateTagRequest {
+                                name: tag_name.clone(),
+                                parent_id: None,
+                                color: None,
+                            };
+                            db::TagRepository::create(&pool, create_req)
+                                .await
+                                .map_err(|e| format!("Failed to create tag {}: {}", tag_name, e))?
+                        }
+                        Err(e) => return Err(format!("DB error: {}", e)),
+                    };
+                    tag_ids_to_add.push(tag.id);
+                }
+                db::TagRepository::add_tags_to_image(&pool, &hash, tag_ids_to_add)
+                    .await
+                    .map_err(|e| format!("Failed to add image tags: {}", e))?;
+            }
+
+            // 处理移除标签
+            if !to_remove_names.is_empty() {
+                let mut tag_ids_to_remove = Vec::new();
+                for tag_name in &to_remove_names {
+                    if let Ok(Some(tag)) = db::TagRepository::get_by_name(&pool, tag_name).await {
+                        tag_ids_to_remove.push(tag.id);
+                    }
+                }
+                db::TagRepository::remove_tags_from_image(&pool, &hash, tag_ids_to_remove)
+                    .await
+                    .map_err(|e| format!("Failed to remove image tags: {}", e))?;
+            }
+
+            imported += 1;
+        }
+    }
+    tracing::info!("Finished Allusion import: imported={}, skipped={}, errors={}, backup_files_with_tags={}", imported, skipped, errors.len(), backup_files_with_tags);
+    
+    Ok(serde_json::json!({
+        "imported": imported,
+        "skipped": skipped,
+        "errors": errors,
+        "backup_files_with_tags": backup_files_with_tags
+    }))
+}
+
+#[tauri::command]
 async fn add_tags_to_images(
     state: State<'_, AppState>,
     image_ids: Vec<i64>,
@@ -1125,6 +1315,8 @@ fn main() {
             rebuild_search_index,
             fix_image_dimensions,
             get_db_migration_status,
+            // Allusion导入
+            import_allusion_data,
             // 右键菜单
             rename_image,
             add_tags_to_images,

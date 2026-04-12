@@ -31,7 +31,13 @@ impl MigrationManager {
     /// 生产环境：从打包资源中提取
     /// 开发环境：直接使用源码目录
     pub async fn init_migrations(app_handle: &AppHandle) -> Result<PathBuf> {
-        // 首先尝试从资源中提取（生产环境）
+        // 开发环境：优先使用源码目录
+        if let Ok(dev_path) = Self::find_dev_migrations().await {
+            tracing::info!("Using development migrations: {:?}", dev_path);
+            return Ok(dev_path);
+        }
+        
+        // 生产环境：从资源中提取
         if let Ok(resource_dir) = app_handle.path().resource_dir() {
             let resource_migrations = resource_dir.join("migrations");
             
@@ -45,12 +51,6 @@ impl MigrationManager {
                 
                 return Ok(app_migrations);
             }
-        }
-        
-        // 开发环境：尝试多种可能的路径
-        if let Ok(dev_path) = Self::find_dev_migrations().await {
-            tracing::info!("Using development migrations: {:?}", dev_path);
-            return Ok(dev_path);
         }
         
         Err(anyhow::anyhow!(
