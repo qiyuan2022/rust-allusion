@@ -16,9 +16,7 @@ import { searchImages, getSearchIndexStatus, rebuildSearchIndex } from "./api/se
 import { 
   Location, 
   getAllLocations, 
-  addLocation, 
   deleteLocation as deleteLocationApi,
-  scanLocation 
 } from "./api/locations";
 
 // 重新导出Location类型
@@ -98,32 +96,25 @@ function MainApp() {
     }
   }, [store.sortBy, store.sortOrder]);
 
-  // 根据当前页码更新可见图片（虚拟滚动）
+  // 【虚拟滚动】直接传递所有图片元数据给 Gallery
+  // Gallery 内部通过 visibleRange 控制实际渲染数量
   useEffect(() => {
     if (store.allImages.length === 0) return;
     
-    // 如果处于搜索模式，不要从 allImages 切片（搜索结果已由 handleSearch 设置）
+    // 如果处于搜索模式，不要覆盖（搜索结果已由 handleSearch 设置）
     if (store.isSearching || store.searchQuery || store.selectedTagIds.length > 0) {
       return;
     }
     
-    const start = store.currentPage * store.pageSize;
-    const end = start + store.pageSize * 3; // 预加载3页
-    const visibleImages = store.allImages.slice(start, end);
-    store.setImages(visibleImages);
-  }, [store.allImages, store.currentPage, store.pageSize, store.isSearching, store.searchQuery, store.selectedTagIds]);
+    store.setImages(store.allImages);
+  }, [store.allImages, store.isSearching, store.searchQuery, store.selectedTagIds]);
 
-  // 加载更多图片（滚动时调用）
+  // 【虚拟滚动】已废弃，由 Gallery 内部滚动处理
+  // 保留此函数以兼容组件接口，但不再执行分页逻辑
   const loadMoreImages = useCallback(() => {
-    // 搜索模式下不支持加载更多
-    if (store.isSearching) {
-      return;
-    }
-    
-    if ((store.currentPage + 1) * store.pageSize < store.allImages.length) {
-      store.setCurrentPage(store.currentPage + 1);
-    }
-  }, [store.currentPage, store.pageSize, store.allImages.length, store.isSearching]);
+    // 虚拟滚动模式下无需手动加载更多
+    // Gallery 组件会根据滚动位置自动渲染可见区域
+  }, []);
 
   // 刷新图片（排序变化时）
   const loadImages = useCallback(async () => {
@@ -213,7 +204,7 @@ function MainApp() {
       if (!query && store.selectedTagIds.length === 0) {
         // 清空搜索，显示所有图片
         store.clearSearch();
-        store.setImages(store.allImages.slice(0, store.pageSize * 3));
+        store.setImages(store.allImages);
         return;
       }
 
@@ -261,8 +252,8 @@ function MainApp() {
           setShowRebuildIndexPrompt(true);
         }
         
-        // 显示过滤后的图片
-        store.setImages(filtered.slice(0, store.pageSize * 3));
+        // 显示过滤后的图片（虚拟滚动会处理渲染）
+        store.setImages(filtered);
         store.setCurrentPage(0);
         // 使用全局 getState 读取最新状态，确保获取到已更新的值
         
@@ -323,45 +314,7 @@ function MainApp() {
     }
   }, [deleteLocationDialog.locationId, loadImages]);
 
-  // 扫描位置
-  const handleScanLocation = useCallback(async (id: number) => {
-    try {
-      store.setLoading(true);
-      const result = await scanLocation(id);
-      
-      alert(
-        `扫描完成！\n` +
-        `扫描文件: ${result.scanned}\n` +
-        `成功导入: ${result.imported}\n` +
-        `失败: ${result.failed}\n` +
-        `跳过: ${result.skipped}`
-      );
-      
-      // 刷新图片列表和位置数据
-      await loadImages();
-      await loadSidebarData();
-    } catch (error) {
-      console.error("Failed to scan location:", error);
-      alert("扫描失败: " + error);
-    } finally {
-      store.setLoading(false);
-    }
-  }, [loadImages, loadSidebarData]);
 
-  // 添加位置
-  const handleAddLocation = useCallback(async () => {
-    try {
-      const newLocation = await addLocation();
-      if (newLocation) {
-        setLocations((prev) => [...prev, newLocation]);
-        // 自动扫描新添加的位置
-        await handleScanLocation(newLocation.id);
-      }
-    } catch (error) {
-      console.error("Failed to add location:", error);
-      alert("添加位置失败");
-    }
-  }, [handleScanLocation]);
 
   // 头部组件
   const HeaderComponent = (
@@ -411,11 +364,13 @@ function MainApp() {
           }
         }
       }}
-      onAddLocation={handleAddLocation}
       onDeleteLocation={handleDeleteLocation}
-      onScanLocation={handleScanLocation}
       onTagMoved={loadSidebarData}
       onTagDeleted={loadSidebarData}
+      onLocationsChange={() => {
+        loadSidebarData();
+        loadImages();
+      }}
     />
   );
 

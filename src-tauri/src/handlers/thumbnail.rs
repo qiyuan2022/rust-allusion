@@ -2,8 +2,62 @@ use tauri::State;
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use crate::models::*;
-use crate::db;
+use crate::db::{self};
 use crate::core::ThumbnailGenerator;
+
+/// 【Hash 直接拼接方案】获取缩略图，不存在则生成
+/// 
+/// 特点：
+/// 1. 不查询数据库缩略图表，直接根据 hash 拼接路径检查文件
+/// 2. 文件存在直接返回路径
+/// 3. 文件不存在则调用生成服务创建缩略图
+/// 
+/// 特点：
+/// 1. 不查询数据库缩略图表
+/// 2. 直接根据 hash 拼接路径检查文件
+/// 3. 文件不存在时调用生成服务创建缩略图
+#[tauri::command]
+pub async fn get_or_generate_thumbnail_by_hash(
+    state: State<'_, crate::AppState>,
+    image_id: i64,
+    hash: String,
+    image_path: String,
+    size_type: String,
+    thumbnail_dir: Option<String>,
+) -> Result<Option<String>, String> {
+    // 优先使用传入的自定义目录，否则使用当前设置目录
+    let thumb_dir = if let Some(custom_dir) = thumbnail_dir {
+        PathBuf::from(custom_dir)
+    } else {
+        state.thumbnail_dir.read().await.clone()
+    };
+
+    // 构造缩略图文件名：{hash}_{size}.jpg（缩略图统一使用 jpg 格式）
+    let filename = format!("{}_{}.jpg", hash, size_type);
+    let thumb_path = thumb_dir.join(&filename);
+
+    // 如果文件已存在，直接返回路径（不再检查数据库，前端会缓存）
+    if thumb_path.exists() {
+        return Ok(Some(thumb_path.to_string_lossy().to_string()));
+    }
+
+    // 文件不存在，需要生成缩略图
+    let size = ThumbnailSize::from_str(&size_type)
+        .ok_or_else(|| format!("Invalid size type: {}", size_type))?;
+
+    let result = state
+        .thumbnail_service
+        .generate_now(image_id, &image_path, &hash, size)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if result.success {
+        Ok(result.path)
+    } else {
+        tracing::warn!("Failed to generate thumbnail for hash {}: {:?}", hash, result.error);
+        Ok(None)
+    }
+}
 
 #[tauri::command]
 pub async fn generate_thumbnail(
@@ -46,11 +100,72 @@ pub async fn get_thumbnail_path(
 ) -> Result<Option<String>, String> {
     let pool = state.db.lock().await;
 
-    let thumbnail = db::ThumbnailRepository::get_by_image_and_size(&pool, image_id, &size_type)
+    // 先查询图片获取 hash
+    let image = db::ImageRepository::get_by_id(&pool, image_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Image not found".to_string())?;
+
+    let thumbnail = db::ThumbnailRepository::get_by_hash_and_size(&pool, &image.hash, &size_type)
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(thumbnail.map(|t| t.path))
+    let thumb_dir = state.thumbnail_dir.read().await;
+    Ok(thumbnail.map(|t| thumb_dir.join(&t.path).to_string_lossy().to_string()))
+}
+
+/// 【懒加载方案】获取缩略图路径，如果不存在则生成
+/// 
+/// 这个命令用于前端按需加载缩略图：
+/// 1. 检查缩略图是否已存在
+/// 2. 如果不存在，同步生成缩略图
+/// 3. 返回缩略图路径（或 null 如果生成失败）
+#[tauri::command]
+pub async fn get_or_generate_thumbnail(
+    state: State<'_, crate::AppState>,
+    image_id: i64,
+    size_type: String,
+) -> Result<Option<String>, String> {
+    let pool = state.db.lock().await.clone();
+    let thumb_dir = state.thumbnail_dir.read().await.clone();
+
+    // 获取图片信息
+    let image = db::ImageRepository::get_by_id(&pool, image_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Image not found".to_string())?;
+
+    // 1. 先检查缩略图是否已存在（使用 hash 查询）
+    if let Some(thumbnail) = db::ThumbnailRepository::get_by_hash_and_size(&pool, &image.hash, &size_type)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        // 检查文件是否真实存在（DB 中存的是相对路径）
+        let abs_path = thumb_dir.join(&thumbnail.path);
+        if abs_path.exists() {
+            return Ok(Some(abs_path.to_string_lossy().to_string()));
+        }
+        // 文件不存在，需要重新生成
+    }
+
+    // 2. 解析尺寸类型
+    let size = ThumbnailSize::from_str(&size_type)
+        .ok_or_else(|| format!("Invalid size type: {}", size_type))?;
+
+    // 3. 生成缩略图
+    let result = state
+        .thumbnail_service
+        .generate_now(image_id, &image.path, &image.hash, size)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if result.success {
+        Ok(result.path)
+    } else {
+        // 生成失败，返回 null（前端可以显示占位符）
+        tracing::warn!("Failed to generate thumbnail for image {}: {:?}", image_id, result.error);
+        Ok(None)
+    }
 }
 
 #[tauri::command]
@@ -60,9 +175,23 @@ pub async fn get_thumbnail_status(
 ) -> Result<ThumbnailStatus, String> {
     let pool = state.db.lock().await;
 
-    db::ThumbnailRepository::get_thumbnail_status(&pool, image_id)
+    // 先查询图片获取 hash
+    let image = db::ImageRepository::get_by_id(&pool, image_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Image not found".to_string())?;
+
+    let mut status = db::ThumbnailRepository::get_thumbnail_status(&pool, &image.hash)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 将相对路径拼接为绝对路径
+    let thumb_dir = state.thumbnail_dir.read().await;
+    status.small_path = status.small_path.map(|p| thumb_dir.join(&p).to_string_lossy().to_string());
+    status.medium_path = status.medium_path.map(|p| thumb_dir.join(&p).to_string_lossy().to_string());
+    status.large_path = status.large_path.map(|p| thumb_dir.join(&p).to_string_lossy().to_string());
+
+    Ok(status)
 }
 
 #[tauri::command]
@@ -78,13 +207,11 @@ pub async fn generate_all_thumbnails(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "Image not found".to_string())?;
 
-    // 获取应用数据目录下的缩略图目录
-    let thumbnail_dir = dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("allusion-rs")
-        .join("thumbnails");
+    // 获取当前缩略图目录
+    let thumbnail_dir = state.thumbnail_dir.read().await.clone();
+    let thumbnail_dir_arc = Arc::new(tokio::sync::RwLock::new(thumbnail_dir));
 
-    let (generator, _progress_rx) = ThumbnailGenerator::new(pool.clone(), thumbnail_dir, 2);
+    let (generator, _progress_rx) = ThumbnailGenerator::new(pool.clone(), thumbnail_dir_arc, 2);
     let generator = Arc::new(generator);
 
     let results = generator
@@ -117,16 +244,11 @@ pub async fn check_thumbnails_integrity(
     state: State<'_, crate::AppState>,
 ) -> Result<serde_json::Value, String> {
     let pool = state.db.lock().await;
+    let thumbnail_dir = state.thumbnail_dir.read().await.clone();
 
-    // 获取缩略图目录
-    let thumbnail_dir = dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("allusion-rs")
-        .join("thumbnails");
-
-    // 获取所有缩略图记录
-    let records = sqlx::query_as::<_, (i64, String, String, i64)>(
-        "SELECT image_id, size_type, path, file_size FROM thumbnails"
+    // 获取所有缩略图记录（使用 image_hash）
+    let records = sqlx::query_as::<_, (String, String, String, i64)>(
+        "SELECT image_hash, size_type, path, file_size FROM thumbnails"
     )
     .fetch_all(&*pool)
     .await
@@ -137,24 +259,25 @@ pub async fn check_thumbnails_integrity(
     let mut empty_files = Vec::new();
     let mut valid_count = 0;
 
-    for (image_id, size_type, path_str, _db_size) in records {
-        let path = Path::new(&path_str);
+    for (image_hash, size_type, path_str, _db_size) in records {
+        // DB 中存的是相对路径，拼接为绝对路径再检查
+        let abs_path = thumbnail_dir.join(&path_str);
 
-        if !path.exists() {
+        if !abs_path.exists() {
             missing_files.push(serde_json::json!({
-                "image_id": image_id,
+                "image_hash": image_hash,
                 "size_type": size_type,
-                "path": path_str
+                "path": abs_path.to_string_lossy().to_string()
             }));
         } else {
-            match std::fs::metadata(path) {
+            match std::fs::metadata(&abs_path) {
                 Ok(metadata) => {
                     let actual_size = metadata.len() as i64;
                     if actual_size == 0 {
                         empty_files.push(serde_json::json!({
-                            "image_id": image_id,
+                            "image_hash": image_hash,
                             "size_type": size_type,
-                            "path": path_str
+                            "path": abs_path.to_string_lossy().to_string()
                         }));
                     } else {
                         valid_count += 1;
@@ -162,9 +285,9 @@ pub async fn check_thumbnails_integrity(
                 }
                 Err(e) => {
                     missing_files.push(serde_json::json!({
-                        "image_id": image_id,
+                        "image_hash": image_hash,
                         "size_type": size_type,
-                        "path": format!("{} (read error: {})", path_str, e)
+                        "path": format!("{} (read error: {})", abs_path.to_string_lossy(), e)
                     }));
                 }
             }
@@ -202,10 +325,11 @@ pub async fn fix_missing_thumbnails(
 ) -> Result<serde_json::Value, String> {
     let pool = state.db.lock().await.clone();
     let thumbnail_service = Arc::clone(&state.thumbnail_service);
+    let thumbnail_dir = state.thumbnail_dir.read().await.clone();
 
-    // 获取所有缩略图记录
-    let records = sqlx::query_as::<_, (i64, String, String)> (
-        "SELECT image_id, size_type, path FROM thumbnails"
+    // 获取所有缩略图记录（使用 image_hash）
+    let records = sqlx::query_as::<_, (String, String, String)> (
+        "SELECT image_hash, size_type, path FROM thumbnails"
     )
     .fetch_all(&pool)
     .await
@@ -216,23 +340,24 @@ pub async fn fix_missing_thumbnails(
     let mut failed_count = 0;
     let mut failed_list = Vec::new();
 
-    for (image_id, size_type, path_str) in records {
-        let path = Path::new(&path_str);
+    for (image_hash, size_type, path_str) in records {
+        // DB 中存的是相对路径，拼接为绝对路径
+        let abs_path = thumbnail_dir.join(&path_str);
 
         // 检查文件是否存在且有效
-        let needs_regen = if !path.exists() {
+        let needs_regen = if !abs_path.exists() {
             true
         } else {
-            match std::fs::metadata(path) {
+            match std::fs::metadata(&abs_path) {
                 Ok(metadata) => metadata.len() == 0,
                 Err(_) => true,
             }
         };
 
         if needs_regen {
-            // 删除无效的数据库记录
-            if let Err(e) = sqlx::query("DELETE FROM thumbnails WHERE image_id = ?1 AND size_type = ?2")
-                .bind(image_id)
+            // 删除无效的数据库记录（使用 hash）
+            if let Err(e) = sqlx::query("DELETE FROM thumbnails WHERE image_hash = ?1 AND size_type = ?2")
+                .bind(&image_hash)
                 .bind(&size_type)
                 .execute(&pool)
                 .await
@@ -241,9 +366,12 @@ pub async fn fix_missing_thumbnails(
             }
             deleted_count += 1;
 
-            // 获取原图信息
-            match db::ImageRepository::get_by_id(&pool, image_id).await {
-                Ok(Some(image)) => {
+            // 获取原图信息（通过 hash 查找）
+            match db::ImageRepository::get_by_hash(&pool, &image_hash).await {
+                Ok(images) if !images.is_empty() => {
+                    let image = &images[0];
+                    let image_id = image.id;
+                    
                     // 重新生成缩略图
                     let size = match size_type.as_str() {
                         "small" => ThumbnailSize::Small,
@@ -259,11 +387,11 @@ pub async fn fix_missing_thumbnails(
                         Ok(result) => {
                             if result.success {
                                 regenerated_count += 1;
-                                tracing::info!("Regenerated thumbnail for image {} ({})", image_id, size_type);
+                                tracing::info!("Regenerated thumbnail for hash {} ({})", image_hash, size_type);
                             } else {
                                 failed_count += 1;
                                 failed_list.push(serde_json::json!({
-                                    "image_id": image_id,
+                                    "image_hash": image_hash,
                                     "size_type": size_type,
                                     "error": result.error.unwrap_or_else(|| "Unknown error".to_string())
                                 }));
@@ -272,19 +400,19 @@ pub async fn fix_missing_thumbnails(
                         Err(e) => {
                             failed_count += 1;
                             failed_list.push(serde_json::json!({
-                                "image_id": image_id,
+                                "image_hash": image_hash,
                                 "size_type": size_type,
                                 "error": e.to_string()
                             }));
                         }
                     }
                 }
-                Ok(None) => {
-                    tracing::warn!("Image {} not found, cannot regenerate thumbnail", image_id);
+                Ok(_) => {
+                    tracing::warn!("Image hash {} not found, cannot regenerate thumbnail", image_hash);
                     failed_count += 1;
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to get image {}: {}", image_id, e);
+                    tracing::warn!("Failed to get image by hash {}: {}", image_hash, e);
                     failed_count += 1;
                 }
             }

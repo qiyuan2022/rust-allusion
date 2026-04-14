@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { X, Settings, FolderInput, Info, Upload } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, Settings, FolderInput, Info, Upload, FolderOpen } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
+import { getThumbnailDir, setThumbnailDir } from "../api/settings";
 
 type TabId = "general" | "import" | "about";
 
@@ -34,7 +35,7 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-white rounded-xl shadow-2xl w-[700px] h-[500px] flex overflow-hidden">
+      <div className="bg-white rounded-xl shadow-2xl w-[60vw] h-[500px] flex overflow-hidden">
         {/* 左侧 Tabs */}
         <div className="w-48 bg-gray-50 border-r flex flex-col">
           <div className="p-4 border-b">
@@ -87,6 +88,30 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
 
 // 通用设置
 function GeneralSettings() {
+  const [thumbDir, setThumbDir] = useState<string>("");
+  const [isMoving, setIsMoving] = useState(false);
+
+  useEffect(() => {
+    getThumbnailDir().then(setThumbDir).catch(console.error);
+  }, []);
+
+  const handleSelectDir = async () => {
+    try {
+      const selected = await open({ directory: true });
+      if (!selected || Array.isArray(selected)) return;
+
+      setIsMoving(true);
+      const result = await setThumbnailDir(selected);
+      setThumbDir(result.new_dir);
+      alert(`缩略图目录已更改，成功迁移 ${result.moved} 个文件${result.failed > 0 ? `，失败 ${result.failed} 个` : ""}`);
+    } catch (error) {
+      console.error("Failed to set thumbnail dir:", error);
+      alert(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsMoving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="space-y-4">
@@ -117,14 +142,32 @@ function GeneralSettings() {
 
       <div className="border-t pt-4">
         <h4 className="text-sm font-medium text-gray-900 mb-4">缓存设置</h4>
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-gray-700">缩略图缓存</p>
-            <p className="text-xs text-gray-500">自动清理超过 30 天的缓存</p>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-700">缩略图缓存</p>
+              <p className="text-xs text-gray-500">自动清理超过 30 天的缓存</p>
+            </div>
+            <button className="px-3 py-1.5 text-sm text-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
+              立即清理
+            </button>
           </div>
-          <button className="px-3 py-1.5 text-sm text-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
-            立即清理
-          </button>
+
+          <div className="flex items-start justify-between">
+            <div className="min-w-0 flex-1 mr-4">
+              <p className="text-sm text-gray-700">缩略图存储位置</p>
+              <p className="text-xs text-gray-500 mt-0.5 break-all">{thumbDir || "加载中..."}</p>
+            </div>
+            <button
+              onClick={handleSelectDir}
+              disabled={isMoving}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white border rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            >
+              <FolderOpen className="w-4 h-4" />
+              {isMoving ? "迁移中..." : "更改目录"}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400">更改目录时会自动将现有缩略图文件迁移到新位置</p>
         </div>
       </div>
     </div>
@@ -168,83 +211,40 @@ function ImportSettings() {
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        <h4 className="text-sm font-medium text-gray-900">导入行为</h4>
+        <h4 className="text-sm font-medium text-gray-900">数据导入</h4>
         
-        <div className="space-y-3">
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input 
-              type="radio" 
-              name="duplicate" 
-              value="skip" 
-              defaultChecked
-              className="mt-1 w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
-            />
-            <div>
-              <p className="text-sm text-gray-700">跳过重复文件</p>
-              <p className="text-xs text-gray-500">如果文件已存在，则跳过导入</p>
-            </div>
-          </label>
-
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input 
-              type="radio" 
-              name="duplicate" 
-              value="replace" 
-              className="mt-1 w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
-            />
-            <div>
-              <p className="text-sm text-gray-700">替换重复文件</p>
-              <p className="text-xs text-gray-500">如果文件已存在，则更新元数据</p>
-            </div>
-          </label>
-
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input 
-              type="radio" 
-              name="duplicate" 
-              value="keep" 
-              className="mt-1 w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
-            />
-            <div>
-              <p className="text-sm text-gray-700">保留两者</p>
-              <p className="text-xs text-gray-500">创建副本，不覆盖原文件</p>
-            </div>
-          </label>
-        </div>
-      </div>
-
-      <div className="border-t pt-4">
-        <h4 className="text-sm font-medium text-gray-900 mb-4">Allusion 数据导入</h4>
-        <div className="space-y-3">
-          <p className="text-sm text-gray-600">
-            从 Allusion 备份文件中导入标签数据。系统会根据文件哈希匹配图片并同步标签。
-          </p>
-          
+        <div className="flex items-start justify-between">
+          <div className="min-w-0 flex-1 mr-4">
+            <p className="text-sm text-gray-700">Allusion 数据导入</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              从 Allusion 备份文件中导入标签数据。
+            </p>
+          </div>
           <button
             onClick={handleImportAllusion}
             disabled={importing}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white border rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
           >
             <Upload className="w-4 h-4" />
-            {importing ? "导入中..." : "导入 Allusion 数据"}
+            {importing ? "导入中..." : "选择文件"}
           </button>
-
-          {importResult && (
-            <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-              <h5 className="text-sm font-medium text-gray-900 mb-2">导入结果</h5>
-              {importResult.error ? (
-                <p className="text-sm text-red-600">{importResult.error}</p>
-              ) : (
-                <div className="space-y-1 text-sm text-gray-700">
-                  <p>已导入: {importResult.imported} 个文件</p>
-                  <p>已跳过: {importResult.skipped} 个文件</p>
-                  <p>错误: {importResult.errors?.length || 0} 个</p>
-                  <p>备份中有标签的文件: {importResult.backup_files_with_tags} 个</p>
-                </div>
-              )}
-            </div>
-          )}
         </div>
+
+        {importResult && (
+          <div className="p-4 bg-gray-50 rounded-lg">
+            <h5 className="text-sm font-medium text-gray-900 mb-2">导入结果</h5>
+            {importResult.error ? (
+              <p className="text-sm text-red-600">{importResult.error}</p>
+            ) : (
+              <div className="space-y-1 text-sm text-gray-700">
+                <p>已导入: {importResult.imported} 个文件</p>
+                <p>已跳过: {importResult.skipped} 个文件</p>
+                <p>错误: {importResult.errors?.length || 0} 个</p>
+                <p>备份中有标签的文件: {importResult.backup_files_with_tags} 个</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="border-t pt-4">

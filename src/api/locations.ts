@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { Channel } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
 export interface Location {
@@ -14,6 +15,31 @@ export interface CreateLocationRequest {
   path: string;
   name: string;
   is_recursive?: boolean;
+}
+
+/// 导入阶段
+export type ImportPhase = "scanning" | "importing" | "completed" | "cancelled";
+
+/// 导入进度
+export interface ImportProgress {
+  /// 当前阶段
+  phase: ImportPhase;
+  /// 总文件数
+  total: number;
+  /// 已处理数
+  processed: number;
+  /// 成功数
+  succeeded: number;
+  /// 失败数
+  failed: number;
+  /// 跳过的文件数
+  skipped: number;
+  /// 当前处理的文件
+  current_file: string | null;
+  /// 进度百分比 (0-100)
+  percentage: number;
+  /// 阶段特定消息
+  message: string | null;
 }
 
 /**
@@ -52,7 +78,7 @@ export async function selectFolder(): Promise<string | null> {
 }
 
 /**
- * 扫描位置（导入图片）
+ * 扫描位置（基础版，无进度反馈）
  */
 export async function scanLocation(locationId: number): Promise<{
   success: boolean;
@@ -65,7 +91,30 @@ export async function scanLocation(locationId: number): Promise<{
 }
 
 /**
- * 添加新位置（包含选择对话框）
+ * 扫描位置（带进度反馈）
+ * 
+ * @param locationId 位置ID
+ * @param onProgress 进度回调函数
+ * @returns 最终进度结果
+ */
+export async function scanLocationWithProgress(
+  locationId: number,
+  onProgress: (progress: ImportProgress) => void
+): Promise<ImportProgress> {
+  const channel = new Channel<ImportProgress>();
+  
+  channel.onmessage = (progress) => {
+    onProgress(progress);
+  };
+
+  return await invoke<ImportProgress>("scan_location_with_progress", {
+    locationId,
+    onProgress: channel,
+  });
+}
+
+/**
+ * 添加新位置（包含选择对话框）- 基础版
  */
 export async function addLocation(): Promise<Location | null> {
   const path = await selectFolder();
@@ -91,6 +140,41 @@ export async function addLocation(): Promise<Location | null> {
   }
   
   return location;
+}
+
+/**
+ * 添加新位置（带进度反馈）
+ * 
+ * @param onProgress 进度回调函数
+ * @returns 创建的位置信息和最终进度
+ */
+export async function addLocationWithProgress(
+  onProgress: (progress: ImportProgress) => void
+): Promise<{ location: Location | null; result: ImportProgress | null }> {
+  const path = await selectFolder();
+  if (!path) return { location: null, result: null };
+
+  // 从路径提取名称
+  const name = path.split(/[/\\]/).pop() || "New Location";
+
+  const location = await createLocation({
+    path,
+    name,
+    is_recursive: true,
+  });
+  
+  // 自动扫描新添加的位置（带进度）
+  if (location) {
+    try {
+      const result = await scanLocationWithProgress(location.id, onProgress);
+      return { location, result };
+    } catch (error) {
+      console.error("Failed to scan location:", error);
+      return { location, result: null };
+    }
+  }
+  
+  return { location, result: null };
 }
 
 /**

@@ -1,9 +1,10 @@
 // Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{Manager};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 mod core;
 mod db;
@@ -22,12 +23,14 @@ pub struct AppState {
     pub file_monitor: Arc<FileMonitor>,
     pub thumbnail_service: Arc<ThumbnailService>,
     pub search_service: Arc<SearchService>,
+    pub thumbnail_dir: Arc<RwLock<PathBuf>>,
 }
 
 fn main() {
     tracing_subscriber::fmt::init();
     
     tauri::Builder::default()
+        .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -68,13 +71,21 @@ fn main() {
             import_images,
             compute_file_hash,
             scan_location,
+            scan_location_with_progress,
             // 缩略图命令
             generate_thumbnail,
             get_thumbnail_path,
+            get_or_generate_thumbnail,
+            get_or_generate_thumbnail_by_hash,
             get_thumbnail_status,
             generate_all_thumbnails,
             check_thumbnails_integrity,
             fix_missing_thumbnails,
+            // 设置命令
+            get_setting,
+            set_setting,
+            get_thumbnail_dir,
+            set_thumbnail_dir,
             // 搜索命令
             search_images,
             get_search_index_status,
@@ -87,6 +98,7 @@ fn main() {
             add_tags_to_images,
             clear_tags_from_images,
             delete_images,
+            show_in_folder,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]
@@ -104,12 +116,22 @@ fn main() {
                         let file_monitor = FileMonitor::new()
                             .expect("Failed to create file monitor");
                         
-                        // 创建缩略图目录
-                        let thumbnail_dir = app_handle
-                            .path()
-                            .app_data_dir()
-                            .expect("Failed to get app data dir")
-                            .join("thumbnails");
+                        // 从数据库读取缩略图目录设置
+                        let thumbnail_dir_setting: Option<String> = sqlx::query_scalar(
+                            "SELECT value FROM settings WHERE key = 'thumbnail_dir'"
+                        )
+                        .fetch_optional(&pool)
+                        .await
+                        .expect("Failed to read thumbnail_dir setting");
+                        
+                        let thumbnail_dir = match thumbnail_dir_setting {
+                            Some(dir) if !dir.is_empty() => PathBuf::from(dir).join("thumbnails"),
+                            _ => app_handle
+                                .path()
+                                .app_data_dir()
+                                .expect("Failed to get app data dir")
+                                .join("thumbnails"),
+                        };
                         
                         if !thumbnail_dir.exists() {
                             std::fs::create_dir_all(&thumbnail_dir)
@@ -118,10 +140,12 @@ fn main() {
                         
                         tracing::info!("Thumbnails directory: {:?}", thumbnail_dir);
                         
+                        let thumbnail_dir_arc = Arc::new(RwLock::new(thumbnail_dir));
+                        
                         // 创建缩略图服务
                         let (thumbnail_service, _progress_rx) = ThumbnailService::new(
                             pool.clone(),
-                            thumbnail_dir,
+                            Arc::clone(&thumbnail_dir_arc),
                             4, // 最大并发数
                         );
                         
@@ -148,12 +172,13 @@ fn main() {
                             file_monitor: Arc::new(file_monitor),
                             thumbnail_service: Arc::new(thumbnail_service),
                             search_service,
+                            thumbnail_dir: thumbnail_dir_arc,
                         });
                         
                         tracing::info!("Application initialized successfully");
                     }
                     Err(e) => {
-                        tracing::error!("Failed to initialize database: {}", e);
+                        tracing::error!("Failed to initialize database: {:#}", e);
                     }
                 }
             });

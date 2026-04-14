@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, Semaphore};
 use tokio::task::JoinSet;
+use serde::Serialize;
 
 use crate::core::ThumbnailService;
 use crate::db::{ImageRepository, ThumbnailRepository};
@@ -23,9 +24,25 @@ pub struct ImageImporter {
     thumbnail_service: Option<Arc<ThumbnailService>>,
 }
 
+/// 导入阶段
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportPhase {
+    /// 扫描文件夹
+    Scanning,
+    /// 导入图片
+    Importing,
+    /// 完成
+    Completed,
+    /// 已取消
+    Cancelled,
+}
+
 /// 导入进度
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ImportProgress {
+    /// 当前阶段
+    pub phase: ImportPhase,
     /// 总文件数
     pub total: usize,
     /// 已处理数
@@ -34,10 +51,94 @@ pub struct ImportProgress {
     pub succeeded: usize,
     /// 失败数
     pub failed: usize,
+    /// 跳过的文件数
+    pub skipped: usize,
     /// 当前处理的文件
-    pub current_file: Option<PathBuf>,
+    pub current_file: Option<String>,
     /// 进度百分比 (0-100)
     pub percentage: u8,
+    /// 阶段特定消息
+    pub message: Option<String>,
+}
+
+impl ImportProgress {
+    /// 创建扫描阶段的进度
+    pub fn scanning(scanned: usize, current_path: Option<&Path>) -> Self {
+        Self {
+            phase: ImportPhase::Scanning,
+            total: 0,
+            processed: scanned,
+            succeeded: 0,
+            failed: 0,
+            skipped: 0,
+            current_file: current_path.map(|p| p.to_string_lossy().to_string()),
+            percentage: 0,
+            message: Some(format!("已发现 {} 个文件", scanned)),
+        }
+    }
+    
+    /// 创建导入阶段的进度
+    pub fn importing(
+        total: usize,
+        processed: usize,
+        succeeded: usize,
+        failed: usize,
+        skipped: usize,
+        current_file: Option<&Path>,
+    ) -> Self {
+        let percentage = if total > 0 {
+            ((processed as f64 / total as f64) * 100.0) as u8
+        } else {
+            0
+        };
+        
+        Self {
+            phase: ImportPhase::Importing,
+            total,
+            processed,
+            succeeded,
+            failed,
+            skipped,
+            current_file: current_file.map(|p| p.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| p.to_string_lossy().to_string())),
+            percentage,
+            message: None,
+        }
+    }
+    
+    /// 创建完成状态
+    pub fn completed(total: usize, succeeded: usize, failed: usize, skipped: usize) -> Self {
+        Self {
+            phase: ImportPhase::Completed,
+            total,
+            processed: total,
+            succeeded,
+            failed,
+            skipped,
+            current_file: None,
+            percentage: 100,
+            message: Some(format!(
+                "导入完成：成功 {}, 失败 {}, 跳过 {}",
+                succeeded, failed, skipped
+            )),
+        }
+    }
+    
+    /// 创建取消状态
+    pub fn cancelled(processed: usize, succeeded: usize, failed: usize, skipped: usize) -> Self {
+        Self {
+            phase: ImportPhase::Cancelled,
+            total: processed,
+            processed,
+            succeeded,
+            failed,
+            skipped,
+            current_file: None,
+            percentage: 0,
+            message: Some("已取消".to_string()),
+        }
+    }
 }
 
 /// 导入结果
@@ -104,9 +205,9 @@ impl ImageImporter {
                 let thumbnail_service = Arc::clone(thumbnail_service);
                 
                 tokio::spawn(async move {
-                    // 检查 small 缩略图是否存在
+                    // 检查 small 缩略图是否存在（使用 hash）
                     let has_thumbnail = match ThumbnailRepository::exists(
-                        &pool, existing_id, "small"
+                        &pool, &existing_hash, "small"
                     ).await {
                         Ok(exists) => exists,
                         Err(e) => {
@@ -301,29 +402,23 @@ impl ImageImporter {
                 }
                 
                 // 发送进度更新
-                let percentage = ((processed as f64 / total as f64) * 100.0) as u8;
-                let progress = ImportProgress {
+                let progress = ImportProgress::importing(
                     total,
                     processed,
                     succeeded,
                     failed,
-                    current_file: Some(path),
-                    percentage,
-                };
+                    skipped.len(),
+                    Some(&path),
+                );
                 
                 let _ = self.progress_tx.try_send(progress);
             }
         }
         
         // 发送最终进度
-        let _ = self.progress_tx.try_send(ImportProgress {
-            total,
-            processed,
-            succeeded,
-            failed,
-            current_file: None,
-            percentage: 100,
-        });
+        let _ = self.progress_tx.try_send(ImportProgress::completed(
+            total, succeeded, failed, skipped.len()
+        ));
         
         tracing::info!(
             "Batch import completed: {} succeeded, {} failed, {} skipped",
@@ -357,34 +452,64 @@ impl ImageImporter {
     }
 }
 
-/// 计算文件哈希（BLAKE3）
+/// 计算文件哈希（BLAKE3）- 使用流式读取，避免大文件内存占用
 pub async fn compute_file_hash(path: &Path) -> Result<String> {
-    let content = tokio::fs::read(path).await
-        .with_context(|| format!("Failed to read file: {:?}", path))?;
-    
-    let hash = blake3::hash(&content);
-    Ok(hash.to_hex().to_string())
-}
-
-/// 计算文件哈希（流式，适合大文件）
-pub async fn compute_file_hash_streaming(path: &Path) -> Result<String> {
     use tokio::io::AsyncReadExt;
+    
+    // 获取文件大小以选择合适的缓冲区
+    let metadata = tokio::fs::metadata(path).await
+        .with_context(|| format!("Failed to read metadata: {:?}", path))?;
+    let file_size = metadata.len();
     
     let mut file = tokio::fs::File::open(path).await
         .with_context(|| format!("Failed to open file: {:?}", path))?;
     
     let mut hasher = blake3::Hasher::new();
-    let mut buffer = vec![0u8; 8192]; // 8KB 缓冲区
+    
+    // 根据文件大小动态调整缓冲区：
+    // - 小文件 (< 1MB): 64KB 缓冲区
+    // - 中等文件 (1MB - 100MB): 256KB 缓冲区  
+    // - 大文件 (> 100MB): 1MB 缓冲区
+    let buffer_size = match file_size {
+        0..=1_048_576 => 64 * 1024,       // 64KB
+        1_048_577..=104_857_600 => 256 * 1024, // 256KB
+        _ => 1024 * 1024,                  // 1MB
+    };
+    
+    let mut buffer = vec![0u8; buffer_size];
+    let mut total_read = 0u64;
     
     loop {
-        let n = file.read(&mut buffer).await?;
+        let n = file.read(&mut buffer).await
+            .with_context(|| format!("Failed to read file: {:?}", path))?;
+        
         if n == 0 {
             break;
         }
+        
         hasher.update(&buffer[..n]);
+        total_read += n as u64;
+        
+        // 每读取 10MB 让出一次执行权，避免长时间阻塞其他任务
+        if total_read % (10 * 1024 * 1024) < buffer_size as u64 {
+            tokio::task::yield_now().await;
+        }
+    }
+    
+    // 验证读取的字节数是否匹配文件大小（确保完整性）
+    if total_read != file_size {
+        return Err(anyhow::anyhow!(
+            "File size mismatch: expected {}, read {}", 
+            file_size, total_read
+        ));
     }
     
     Ok(hasher.finalize().to_hex().to_string())
+}
+
+/// 计算文件哈希（流式，适合大文件）- 现在是 compute_file_hash 的别名
+pub async fn compute_file_hash_streaming(path: &Path) -> Result<String> {
+    compute_file_hash(path).await
 }
 
 /// 获取图片尺寸

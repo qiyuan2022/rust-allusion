@@ -329,10 +329,10 @@ impl ImageRepository {
             let thumbnail_path: Option<String> = sqlx::query_scalar(
                 r#"
                 SELECT path FROM thumbnails 
-                WHERE image_id = ?1 AND size_type = 'small'
+                WHERE image_hash = ?1 AND size_type = 'small'
                 "#
             )
-            .bind(image.id)
+            .bind(&image.hash)
             .fetch_optional(pool)
             .await?;
             
@@ -361,7 +361,7 @@ impl ImageRepository {
             FROM images i
             LEFT JOIN image_tags it ON i.hash = it.image_hash
             LEFT JOIN tags t ON it.tag_id = t.id
-            LEFT JOIN thumbnails tn ON i.id = tn.image_id AND tn.size_type = 'small'
+            LEFT JOIN thumbnails tn ON i.hash = tn.image_hash AND tn.size_type = 'small'
             GROUP BY i.id
             ORDER BY {} {}
             "#,
@@ -683,12 +683,11 @@ impl ImageRepository {
     }
     
     /// 获取指定位置下的图片数量
-    pub async fn count_by_location(pool: &SqlitePool, _location_id: i64) -> Result<i64> {
-        // 临时实现：通过路径前缀匹配
-        // 实际应该添加 location_id 字段到 images 表
+    pub async fn count_by_location(pool: &SqlitePool, location_path: &str) -> Result<i64> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM images"
+            "SELECT COUNT(*) FROM images WHERE path LIKE ?1 || '%'"
         )
+        .bind(location_path)
         .fetch_one(pool)
         .await?;
         

@@ -5,6 +5,51 @@ use std::collections::HashSet;
 use crate::db;
 use crate::models::Image;
 
+/// 在文件管理器中显示指定文件（选中该文件）
+#[tauri::command]
+pub async fn show_in_folder(path: String) -> Result<(), String> {
+    let path = Path::new(&path);
+    
+    if !path.exists() {
+        return Err(format!("文件不存在: {}", path.display()));
+    }
+
+    if !path.is_file() {
+        return Err("路径不是文件".to_string());
+    }
+
+    // 获取父目录
+    let parent = path.parent().ok_or("无法获取父目录")?;
+    
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .args(["/select,", path.to_str().ok_or("路径包含无效字符")?])
+            .spawn()
+            .map_err(|e| format!("打开资源管理器失败: {}", e))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("打开 Finder 失败: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Linux 下尝试使用 xdg-open 打开父目录
+        std::process::Command::new("xdg-open")
+            .arg(parent)
+            .spawn()
+            .map_err(|e| format!("打开文件管理器失败: {}", e))?;
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn fix_image_dimensions(state: State<'_, crate::AppState>) -> Result<(usize, usize), String> {
     let pool = state.db.lock().await;
@@ -357,16 +402,39 @@ pub async fn delete_images(
     delete_source_file: bool,
 ) -> Result<(), String> {
     let pool = state.db.lock().await;
+    let thumbnail_dir = state.thumbnail_dir.read().await;
 
     for image_id in &image_ids {
         // 获取图片信息
         if let Ok(Some(image)) = db::ImageRepository::get_by_id(&pool, *image_id).await {
+            // 删除缩略图文件和记录
+            let thumbnail_sizes = ["small", "medium", "large"];
+            for size in &thumbnail_sizes {
+                // 检查缩略图记录是否存在
+                if let Ok(Some(thumbnail)) = db::ThumbnailRepository::get_by_hash_and_size(
+                    &pool,
+                    &image.hash,
+                    size,
+                )
+                .await
+                {
+                    // 删除缩略图文件
+                    let thumbnail_path = thumbnail_dir.join(&thumbnail.path);
+                    if thumbnail_path.exists() {
+                        let _ = fs::remove_file(&thumbnail_path);
+                    }
+
+                    // 删除缩略图数据库记录
+                    let _ = db::ThumbnailRepository::delete(&pool, &image.hash, size).await;
+                }
+            }
+
             // 如果需要，删除源文件
             if delete_source_file {
                 let _ = fs::remove_file(&image.path);
             }
 
-            // 删除数据库记录
+            // 删除图片数据库记录
             db::ImageRepository::delete(&pool, *image_id)
                 .await
                 .map_err(|e| e.to_string())?;

@@ -47,7 +47,7 @@ impl ThumbnailSize {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Thumbnail {
     pub id: i64,
-    pub image_id: i64,
+    pub image_hash: String,  // 使用 hash 作为关联键（而不是 image_id）
     pub size_type: String,
     pub path: String,
     pub width: i32,
@@ -59,7 +59,7 @@ pub struct Thumbnail {
 /// 创建缩略图请求
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateThumbnailRequest {
-    pub image_id: i64,
+    pub image_hash: String,  // 使用 hash 作为关联键
     pub size_type: String,
     pub path: String,
     pub width: i32,
@@ -91,7 +91,7 @@ pub struct ThumbnailResult {
 /// 缩略图状态
 #[derive(Debug, Clone, Serialize)]
 pub struct ThumbnailStatus {
-    pub image_id: i64,
+    pub image_hash: String,  // 使用 hash 作为关联键
     pub has_small: bool,
     pub has_medium: bool,
     pub has_large: bool,

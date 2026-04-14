@@ -50,14 +50,20 @@ pub async fn run_migrations(pool: &SqlitePool, migrations_dir: &str) -> Result<(
             let mut tx = pool.begin().await?;
             
             // 执行 SQL
-            sqlx::query(&migration.sql)
+            if let Err(e) = sqlx::query(&migration.sql)
                 .execute(&mut *tx)
                 .await
-                .with_context(|| format!(
-                    "Failed to execute migration {}: {}",
+            {
+                let err_msg = format!(
+                    "Migration {} '{}' failed: {}",
                     migration.version,
-                    migration.name
-                ))?;
+                    migration.name,
+                    e,
+                );
+                tracing::error!("{}", err_msg);
+                tracing::error!("Migration SQL:\n{}", migration.sql);
+                return Err(anyhow::anyhow!("{}", err_msg));
+            }
             
             // 记录迁移已执行
             sqlx::query(

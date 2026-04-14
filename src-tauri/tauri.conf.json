@@ -52,7 +52,8 @@
         "resizable": true,
         "title": "Rust Allusion",
         "width": 1200,
-        "center": true,
+        "center": false,
+        "visible": false,
         "minWidth": 800,
         "minHeight": 600
       }

@@ -13,12 +13,12 @@ impl ThumbnailRepository {
         
         let thumbnail = sqlx::query_as::<_, Thumbnail>(
             r#"
-            INSERT INTO thumbnails (image_id, size_type, path, width, height, file_size, created_at)
+            INSERT INTO thumbnails (image_hash, size_type, path, width, height, file_size, created_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             RETURNING *
             "#
         )
-        .bind(req.image_id)
+        .bind(&req.image_hash)
         .bind(&req.size_type)
         .bind(&req.path)
         .bind(req.width)
@@ -27,38 +27,64 @@ impl ThumbnailRepository {
         .bind(now)
         .fetch_one(pool)
         .await
-        .with_context(|| format!("Failed to create thumbnail record for image {}", req.image_id))?;
+        .with_context(|| format!("Failed to create thumbnail record for hash {}", req.image_hash))?;
         
         Ok(thumbnail)
     }
     
-    /// 根据图片ID和尺寸类型获取缩略图
-    pub async fn get_by_image_and_size(
+    /// 创建缩略图记录（如果已存在则忽略）
+    pub async fn create_or_ignore(pool: &SqlitePool, req: CreateThumbnailRequest) -> Result<Option<Thumbnail>> {
+        let now = chrono::Utc::now().timestamp();
+        
+        // 使用 INSERT OR IGNORE 避免唯一约束冲突
+        let result = sqlx::query_as::<_, Thumbnail>(
+            r#"
+            INSERT OR IGNORE INTO thumbnails (image_hash, size_type, path, width, height, file_size, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            RETURNING *
+            "#
+        )
+        .bind(&req.image_hash)
+        .bind(&req.size_type)
+        .bind(&req.path)
+        .bind(req.width)
+        .bind(req.height)
+        .bind(req.file_size)
+        .bind(now)
+        .fetch_optional(pool)
+        .await
+        .with_context(|| format!("Failed to create thumbnail record for hash {}", req.image_hash))?;
+        
+        Ok(result)
+    }
+    
+    /// 根据图片 hash 和尺寸类型获取缩略图
+    pub async fn get_by_hash_and_size(
         pool: &SqlitePool,
-        image_id: i64,
+        image_hash: &str,
         size_type: &str,
     ) -> Result<Option<Thumbnail>> {
         let thumbnail = sqlx::query_as::<_, Thumbnail>(
             r#"
             SELECT * FROM thumbnails 
-            WHERE image_id = ?1 AND size_type = ?2
+            WHERE image_hash = ?1 AND size_type = ?2
             "#
         )
-        .bind(image_id)
+        .bind(image_hash)
         .bind(size_type)
         .fetch_optional(pool)
         .await
-        .with_context(|| format!("Failed to get thumbnail for image {} size {}", image_id, size_type))?;
+        .with_context(|| format!("Failed to get thumbnail for hash {} size {}", image_hash, size_type))?;
         
         Ok(thumbnail)
     }
     
-    /// 获取图片的所有缩略图
-    pub async fn get_by_image_id(pool: &SqlitePool, image_id: i64) -> Result<Vec<Thumbnail>> {
+    /// 获取图片的所有缩略图（通过 hash）
+    pub async fn get_by_image_hash(pool: &SqlitePool, image_hash: &str) -> Result<Vec<Thumbnail>> {
         let thumbnails = sqlx::query_as::<_, Thumbnail>(
             r#"
             SELECT * FROM thumbnails 
-            WHERE image_id = ?1
+            WHERE image_hash = ?1
             ORDER BY 
                 CASE size_type
                     WHEN 'small' THEN 1
@@ -68,20 +94,20 @@ impl ThumbnailRepository {
                 END
             "#
         )
-        .bind(image_id)
+        .bind(image_hash)
         .fetch_all(pool)
         .await
-        .with_context(|| format!("Failed to get thumbnails for image {}", image_id))?;
+        .with_context(|| format!("Failed to get thumbnails for hash {}", image_hash))?;
         
         Ok(thumbnails)
     }
     
     /// 获取缩略图状态（哪些尺寸存在）
-    pub async fn get_thumbnail_status(pool: &SqlitePool, image_id: i64) -> Result<ThumbnailStatus> {
-        let thumbnails = Self::get_by_image_id(pool, image_id).await?;
+    pub async fn get_thumbnail_status(pool: &SqlitePool, image_hash: &str) -> Result<ThumbnailStatus> {
+        let thumbnails = Self::get_by_image_hash(pool, image_hash).await?;
         
         let mut status = ThumbnailStatus {
-            image_id,
+            image_hash: image_hash.to_string(),
             has_small: false,
             has_medium: false,
             has_large: false,
@@ -112,14 +138,14 @@ impl ThumbnailRepository {
     }
     
     /// 检查缩略图是否存在
-    pub async fn exists(pool: &SqlitePool, image_id: i64, size_type: &str) -> Result<bool> {
+    pub async fn exists(pool: &SqlitePool, image_hash: &str, size_type: &str) -> Result<bool> {
         let count: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*) FROM thumbnails 
-            WHERE image_id = ?1 AND size_type = ?2
+            WHERE image_hash = ?1 AND size_type = ?2
             "#
         )
-        .bind(image_id)
+        .bind(image_hash)
         .bind(size_type)
         .fetch_one(pool)
         .await?;
@@ -127,14 +153,14 @@ impl ThumbnailRepository {
         Ok(count > 0)
     }
     
-    /// 删除指定图片的所有缩略图记录
-    pub async fn delete_by_image_id(pool: &SqlitePool, image_id: i64) -> Result<u64> {
+    /// 删除指定 hash 的所有缩略图记录
+    pub async fn delete_by_image_hash(pool: &SqlitePool, image_hash: &str) -> Result<u64> {
         let result = sqlx::query(
             r#"
-            DELETE FROM thumbnails WHERE image_id = ?1
+            DELETE FROM thumbnails WHERE image_hash = ?1
             "#
         )
-        .bind(image_id)
+        .bind(image_hash)
         .execute(pool)
         .await?;
         
@@ -142,42 +168,18 @@ impl ThumbnailRepository {
     }
     
     /// 删除指定的缩略图记录
-    pub async fn delete(pool: &SqlitePool, image_id: i64, size_type: &str) -> Result<bool> {
+    pub async fn delete(pool: &SqlitePool, image_hash: &str, size_type: &str) -> Result<bool> {
         let result = sqlx::query(
             r#"
-            DELETE FROM thumbnails WHERE image_id = ?1 AND size_type = ?2
+            DELETE FROM thumbnails WHERE image_hash = ?1 AND size_type = ?2
             "#
         )
-        .bind(image_id)
+        .bind(image_hash)
         .bind(size_type)
         .execute(pool)
         .await?;
         
         Ok(result.rows_affected() > 0)
-    }
-    
-    /// 获取缺少缩略图的图片列表
-    pub async fn get_images_without_thumbnails(
-        pool: &SqlitePool,
-        size_type: &str,
-        limit: i64,
-    ) -> Result<Vec<(i64, String, String)>> {
-        // 返回 (image_id, image_path, image_hash) 列表
-        let results: Vec<(i64, String, String)> = sqlx::query_as(
-            r#"
-            SELECT i.id, i.path, i.hash
-            FROM images i
-            LEFT JOIN thumbnails t ON i.id = t.image_id AND t.size_type = ?1
-            WHERE t.id IS NULL
-            LIMIT ?2
-            "#
-        )
-        .bind(size_type)
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
-        
-        Ok(results)
     }
     
     /// 统计缩略图数量
@@ -206,7 +208,7 @@ impl ThumbnailRepository {
     /// 更新缩略图路径（如果文件被移动）
     pub async fn update_path(
         pool: &SqlitePool,
-        image_id: i64,
+        image_hash: &str,
         size_type: &str,
         new_path: &str,
     ) -> Result<bool> {
@@ -214,11 +216,11 @@ impl ThumbnailRepository {
             r#"
             UPDATE thumbnails 
             SET path = ?1
-            WHERE image_id = ?2 AND size_type = ?3
+            WHERE image_hash = ?2 AND size_type = ?3
             "#
         )
         .bind(new_path)
-        .bind(image_id)
+        .bind(image_hash)
         .bind(size_type)
         .execute(pool)
         .await?;

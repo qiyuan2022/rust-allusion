@@ -108,6 +108,7 @@ pub async fn list_images_with_thumbnail(
         _ => true,
     };
 
+    let thumb_dir = state.thumbnail_dir.read().await;
     let results = db::ImageRepository::list_with_tags_and_thumbnail_sort(
         &pool, offset, limit, sort_column, desc
     )
@@ -115,7 +116,8 @@ pub async fn list_images_with_thumbnail(
         .map_err(|e| e.to_string())?;
 
     Ok(results.into_iter().map(|(image, tags, thumbnail_path)| {
-        ImageWithThumbnail { image, tags, thumbnail_path }
+        let abs_thumb = thumbnail_path.map(|p| thumb_dir.join(&p).to_string_lossy().to_string());
+        ImageWithThumbnail { image, tags, thumbnail_path: abs_thumb }
     }).collect())
 }
 
@@ -144,12 +146,14 @@ pub async fn get_all_images(
     };
 
     // 使用带缩略图的方法
+    let thumb_dir = state.thumbnail_dir.read().await;
     let results = db::ImageRepository::get_all_with_tags_and_thumbnail(&pool, sort_column, desc)
         .await
         .map_err(|e| e.to_string())?;
 
     Ok(results.into_iter().map(|(image, tags, thumbnail_path)| {
-        ImageWithThumbnail { image, tags, thumbnail_path }
+        let abs_thumb = thumbnail_path.map(|p| thumb_dir.join(&p).to_string_lossy().to_string());
+        ImageWithThumbnail { image, tags, thumbnail_path: abs_thumb }
     }).collect())
 }
 

@@ -114,16 +114,6 @@ export function Header({
         {/* 视图切换 */}
         <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
           <ViewModeButton
-            mode="grid"
-            currentMode={viewMode}
-            onClick={() => onViewModeChange("grid")}
-            icon={
-              <LayoutGrid className="w-4 h-4" />
-            }
-            label="网格"
-          />
-
-          <ViewModeButton
             mode="justified"
             currentMode={viewMode}
             onClick={() => onViewModeChange("justified")}
@@ -131,6 +121,16 @@ export function Header({
               <AlignJustify className="w-4 h-4" />
             }
             label="水平"
+          />
+
+          <ViewModeButton
+            mode="grid"
+            currentMode={viewMode}
+            onClick={() => onViewModeChange("grid")}
+            icon={
+              <LayoutGrid className="w-4 h-4" />
+            }
+            label="网格"
           />
         </div>
 

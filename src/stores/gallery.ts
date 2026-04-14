@@ -84,7 +84,7 @@ const initialState = {
   hasMore: false,
   isLoading: false,
   isSearching: false,
-  viewMode: "grid" as ViewMode,
+  viewMode: "justified" as ViewMode,
   selectedIds: new Set<number>(),
   currentPage: 0,
   pageSize: 50,
@@ -98,6 +98,7 @@ const initialState = {
   isPreviewOpen: false,
   detailImageId: null,
   isDetailOpen: false,
+  savedScrollTop: null as number | null,
 };
 
 export const useGalleryStore = create<GalleryState>((set, get) => ({

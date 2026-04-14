@@ -65,6 +65,28 @@ export async function getThumbnailPath(
 }
 
 /**
+ * 【懒加载方案】获取缩略图路径，如果不存在则生成
+ * 
+ * 用于按需加载缩略图：
+ * 1. 检查缩略图是否已存在
+ * 2. 如果不存在，同步生成缩略图
+ * 3. 返回缩略图路径（或 null 如果生成失败）
+ * 
+ * @param imageId 图片ID
+ * @param sizeType 尺寸类型
+ * @returns 缩略图路径，生成失败返回 null
+ */
+export async function getOrGenerateThumbnail(
+  imageId: number,
+  sizeType: ThumbnailSize
+): Promise<string | null> {
+  return await invoke<string | null>("get_or_generate_thumbnail", {
+    imageId,
+    sizeType,
+  });
+}
+
+/**
  * 获取图片的缩略图状态
  * @param imageId 图片ID
  */
@@ -85,6 +107,32 @@ export async function generateAllThumbnails(
 ): Promise<GenerateAllResult> {
   return await invoke<GenerateAllResult>("generate_all_thumbnails", {
     imageId,
+  });
+}
+
+/**
+ * 【Hash 直接拼接方案】获取缩略图，不存在则生成
+ * 
+ * @param imageId 图片ID
+ * @param hash 图片哈希值
+ * @param imagePath 原图路径
+ * @param sizeType 尺寸类型
+ * @param thumbnailDir 可选，自定义缩略图目录
+ * @returns 缩略图路径，生成失败返回 null
+ */
+export async function getOrGenerateThumbnailByHash(
+  imageId: number,
+  hash: string,
+  imagePath: string,
+  sizeType: ThumbnailSize,
+  thumbnailDir?: string
+): Promise<string | null> {
+  return await invoke<string | null>("get_or_generate_thumbnail_by_hash", {
+    imageId,
+    hash,
+    imagePath,
+    sizeType,
+    thumbnailDir,
   });
 }
 

@@ -57,16 +57,13 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
 
   useEffect(() => {
     let cancelled = false;
-    
+
     const loadData = async () => {
-      await Promise.all([
-        loadImageDetail(),
-        loadAvailableTags()
-      ]);
+      await Promise.all([loadImageDetail(), loadAvailableTags()]);
     };
-    
+
     loadData();
-    
+
     return () => {
       cancelled = true;
     };
@@ -211,18 +208,21 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
 
         {/* 右侧信息面板 */}
         <div className="w-80 bg-white border-l overflow-y-auto">
-          {/* Information */}
+          {/* 图片信息 */}
           <div className="p-4">
-            <h3 className="font-semibold text-gray-900 mb-4">Information</h3>
+            <h3 className="font-semibold text-gray-900 mb-4">图片信息</h3>
             <div className="space-y-3 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-500">Filename</span>
-                <span className="text-gray-900 text-right max-w-[180px] truncate" title={image.file_name}>
+                <span className="text-gray-500">文件名</span>
+                <span
+                  className="text-gray-900 text-right max-w-[180px] truncate"
+                  title={image.file_name}
+                >
                   {image.file_name}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Dimensions</span>
+                <span className="text-gray-500">尺寸</span>
                 <span className="text-gray-900">
                   {image.width && image.height
                     ? `${image.width} x ${image.height}`
@@ -230,35 +230,45 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Size</span>
-                <span className="text-gray-900">{formatFileSize(image.file_size)}</span>
+                <span className="text-gray-500">大小</span>
+                <span className="text-gray-900">
+                  {formatFileSize(image.file_size)}
+                </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Imported</span>
-                <span className="text-gray-900">{formatDate(image.created_at)}</span>
+                <span className="text-gray-500">导入时间</span>
+                <span className="text-gray-900">
+                  {formatDate(image.created_at)}
+                </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Created</span>
-                <span className="text-gray-900">{formatDate(image.file_modified_at)}</span>
+                <span className="text-gray-500">创建时间</span>
+                <span className="text-gray-900">
+                  {formatDate(image.file_modified_at)}
+                </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Modified</span>
-                <span className="text-gray-900">{formatDate(image.file_modified_at)}</span>
+                <span className="text-gray-500">修改时间</span>
+                <span className="text-gray-900">
+                  {formatDate(image.file_modified_at)}
+                </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Bit Depth</span>
+                <span className="text-gray-500">位深度</span>
                 <span className="text-gray-900">8</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Megapixels</span>
-                <span className="text-gray-900">{getMegapixels(image.width, image.height)}</span>
+                <span className="text-gray-500">像素</span>
+                <span className="text-gray-900">
+                  {getMegapixels(image.width, image.height)}
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Path to file */}
+          {/* 文件路径 */}
           <div className="px-4 py-3 border-t">
-            <h3 className="font-semibold text-gray-900 mb-3">Path to file</h3>
+            <h3 className="font-semibold text-gray-900 mb-3">文件路径</h3>
             <div className="flex gap-2">
               <div className="flex-1 px-3 py-2 bg-gray-50 rounded text-sm text-gray-600 truncate">
                 {image.path}
@@ -273,9 +283,9 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
             </div>
           </div>
 
-          {/* Tags */}
+          {/* 标签 */}
           <div className="px-4 py-3 border-t">
-            <h3 className="font-semibold text-gray-900 mb-3">Tags</h3>
+            <h3 className="font-semibold text-gray-900 mb-3">标签</h3>
             <TagInput
               availableTags={availableTags}
               selectedTagIds={image.tags.map((t) => t.id)}
