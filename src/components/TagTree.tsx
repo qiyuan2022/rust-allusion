@@ -116,8 +116,8 @@ function TagTreeItem({
         className={`
           flex items-center justify-between py-2 px-3 rounded-lg cursor-pointer
           transition-colors duration-150
-          ${isSelected ? "bg-primary-100" : "hover:bg-gray-100"}
-          ${isDropTarget ? "bg-primary-50 border-2 border-primary-300" : ""}
+          ${isSelected ? "bg-primary-100 dark:bg-primary-900/30" : "hover:bg-gray-100 dark:hover:bg-gray-800"}
+          ${isDropTarget ? "bg-primary-50 dark:bg-primary-900/20 border-2 border-primary-300 dark:border-primary-600" : ""}
           ${isDragging ? "opacity-50" : ""}
         `}
         style={{ paddingLeft: `${level * 16 + 12}px` }}
@@ -136,7 +136,7 @@ function TagTreeItem({
                 e.stopPropagation();
                 onToggleExpand(node.id);
               }}
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-200"
+              className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-200 dark:hover:bg-gray-700"
             >
               <ChevronRight
                 className={`w-3 h-3 transition-transform ${
@@ -153,9 +153,9 @@ function TagTreeItem({
             style={{ backgroundColor: node.color }}
           />
           
-          <span className="font-medium truncate">{node.name}</span>
+          <span className="font-medium truncate dark:text-gray-200">{node.name}</span>
           
-          <span className="text-xs text-gray-500 flex-shrink-0">
+          <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
             ({node.image_count})
           </span>
         </div>
@@ -163,7 +163,7 @@ function TagTreeItem({
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={handleDelete}
-            className="p-1 text-gray-400 hover:text-red-500 rounded"
+            className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-500 rounded"
             title="删除标签"
           >
             <X className="w-4 h-4" />

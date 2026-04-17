@@ -38,6 +38,9 @@ export interface GalleryState {
   // 详情页状态
   detailImageId: number | null;
   isDetailOpen: boolean;
+
+  // 主题状态
+  isDarkMode: boolean;
   
   // 动作
   setImages: (images: Image[]) => void;
@@ -69,6 +72,7 @@ export interface GalleryState {
   incrementPage: () => void;
   reset: () => void;
   setSavedScrollTop: (pos: number | null) => void;
+  setDarkMode: (dark: boolean) => void;
   // 右键菜单操作
   renameImage: (imageId: number, newName: string) => Promise<void>;
   addTagsToImages: (imageIds: number[], tagIds: number[], newTagNames?: string[], onSuccess?: () => void) => Promise<void>;
@@ -99,6 +103,7 @@ const initialState = {
   detailImageId: null,
   isDetailOpen: false,
   savedScrollTop: null as number | null,
+  isDarkMode: false,
 };
 
 export const useGalleryStore = create<GalleryState>((set, get) => ({
@@ -263,6 +268,18 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
       detailImageId: null,
       isDetailOpen: false,
     }),
+
+  // 设置暗黑模式
+  setDarkMode: (dark) => {
+    set({ isDarkMode: dark });
+    if (dark) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  },
 
   // 重命名图片
   renameImage: async (imageId, newName) => {

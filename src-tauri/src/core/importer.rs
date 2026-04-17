@@ -219,7 +219,7 @@ impl ImageImporter {
                     if !has_thumbnail {
                         tracing::info!("Generating missing small thumbnail for existing image {}", existing_id);
                         match thumbnail_service
-                            .generate_now(existing_id, &existing_path, &existing_hash, ThumbnailSize::Small)
+                            .generate_now(existing_id, &existing_path, &existing_hash, ThumbnailSize::Small, false)
                             .await
                         {
                             Ok(result) => {
@@ -292,7 +292,7 @@ impl ImageImporter {
             
             tokio::spawn(async move {
                 match thumbnail_service
-                    .generate_now(image_id, &image_path, &image_hash, ThumbnailSize::Small)
+                    .generate_now(image_id, &image_path, &image_hash, ThumbnailSize::Small, false)
                     .await
                 {
                     Ok(result) => {

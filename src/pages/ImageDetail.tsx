@@ -4,7 +4,8 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { Tag } from "../api/tags";
 import { TagInput } from "../components/TagInput";
 import { useGalleryStore } from "../stores/gallery";
-import { ChevronLeft, Heart, FolderOpen, Trash2, Copy } from "lucide-react";
+import { generateThumbnail, ThumbnailResult } from "../api/thumbnail";
+import { ChevronLeft, Heart, FolderOpen, Trash2, Copy, RefreshCw } from "lucide-react";
 
 interface ImageDetailProps {
   imageId: number;
@@ -30,6 +31,8 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
   const [image, setImage] = useState<ImageDetail | null>(null);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenResult, setRegenResult] = useState<{ result: ThumbnailResult; duration: number } | null>(null);
   const updateImageTags = useGalleryStore((state) => state.updateImageTags);
 
   const loadImageDetail = useCallback(async () => {
@@ -133,12 +136,29 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
     return ((width * height) / 1000000).toFixed(1);
   };
 
+  const handleRegenerateThumbnails = async () => {
+    if (!image) return;
+    setRegenerating(true);
+    setRegenResult(null);
+    const start = performance.now();
+    try {
+      const result = await generateThumbnail(image.id, "small", true);
+      const duration = performance.now() - start;
+      setRegenResult({ result, duration });
+      console.log("Thumbnail regeneration result:", result, "Duration:", duration);
+    } catch (error) {
+      console.error("Failed to regenerate thumbnail:", error);
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
+      <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-gray-200 border-t-primary-500 rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-gray-500">加载中...</p>
+          <div className="w-8 h-8 border-2 border-gray-200 dark:border-gray-700 border-t-primary-500 rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-gray-500 dark:text-gray-400">加载中...</p>
         </div>
       </div>
     );
@@ -146,9 +166,9 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
 
   if (!image) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
+      <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
         <div className="text-center">
-          <p className="text-gray-500">图片不存在</p>
+          <p className="text-gray-500 dark:text-gray-400">图片不存在</p>
           <button
             onClick={onClose}
             className="mt-4 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
@@ -161,12 +181,12 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-white">
+    <div className="h-screen flex flex-col bg-white dark:bg-gray-900">
       {/* 顶部工具栏 */}
-      <div className="h-12 px-4 flex items-center justify-between border-b bg-white">
+      <div className="h-12 px-4 flex items-center justify-between border-b dark:border-gray-700 bg-white dark:bg-gray-900">
         <button
           onClick={onClose}
-          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+          className="flex items-center gap-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
         >
           <ChevronLeft className="w-5 h-5" />
           <span>返回</span>
@@ -174,20 +194,20 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
 
         <div className="flex items-center gap-2">
           <button
-            className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg"
+            className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
             title="收藏"
           >
             <Heart className="w-5 h-5" />
           </button>
           <button
-            className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg"
+            className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
             title="在文件夹中显示"
             onClick={() => invoke("show_in_folder", { path: image.path })}
           >
             <FolderOpen className="w-5 h-5" />
           </button>
           <button
-            className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg"
+            className="p-2 text-gray-600 dark:text-gray-300 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
             title="删除"
           >
             <Trash2 className="w-5 h-5" />
@@ -198,7 +218,7 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
       {/* 主内容区 */}
       <div className="flex-1 flex overflow-hidden">
         {/* 左侧图片预览 */}
-        <div className="flex-1 bg-gray-100 flex items-center justify-center p-8">
+        <div className="flex-1 bg-gray-100 dark:bg-gray-950 flex items-center justify-center p-8">
           <img
             src={convertFileSrc(image.path.replace(/\\/g, "/"))}
             alt={image.file_name}
@@ -207,59 +227,59 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
         </div>
 
         {/* 右侧信息面板 */}
-        <div className="w-80 bg-white border-l overflow-y-auto">
+        <div className="w-80 bg-white dark:bg-gray-900 border-l dark:border-gray-700 overflow-y-auto">
           {/* 图片信息 */}
           <div className="p-4">
-            <h3 className="font-semibold text-gray-900 mb-4">图片信息</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">图片信息</h3>
             <div className="space-y-3 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-500">文件名</span>
+                <span className="text-gray-500 dark:text-gray-400">文件名</span>
                 <span
-                  className="text-gray-900 text-right max-w-[180px] truncate"
+                  className="text-gray-900 dark:text-gray-100 text-right max-w-[180px] truncate"
                   title={image.file_name}
                 >
                   {image.file_name}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">尺寸</span>
-                <span className="text-gray-900">
+                <span className="text-gray-500 dark:text-gray-400">尺寸</span>
+                <span className="text-gray-900 dark:text-gray-100">
                   {image.width && image.height
                     ? `${image.width} x ${image.height}`
                     : "-"}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">大小</span>
-                <span className="text-gray-900">
+                <span className="text-gray-500 dark:text-gray-400">大小</span>
+                <span className="text-gray-900 dark:text-gray-100">
                   {formatFileSize(image.file_size)}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">导入时间</span>
-                <span className="text-gray-900">
+                <span className="text-gray-500 dark:text-gray-400">导入时间</span>
+                <span className="text-gray-900 dark:text-gray-100">
                   {formatDate(image.created_at)}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">创建时间</span>
-                <span className="text-gray-900">
+                <span className="text-gray-500 dark:text-gray-400">创建时间</span>
+                <span className="text-gray-900 dark:text-gray-100">
                   {formatDate(image.file_modified_at)}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">修改时间</span>
-                <span className="text-gray-900">
+                <span className="text-gray-500 dark:text-gray-400">修改时间</span>
+                <span className="text-gray-900 dark:text-gray-100">
                   {formatDate(image.file_modified_at)}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">位深度</span>
-                <span className="text-gray-900">8</span>
+                <span className="text-gray-500 dark:text-gray-400">位深度</span>
+                <span className="text-gray-900 dark:text-gray-100">8</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">像素</span>
-                <span className="text-gray-900">
+                <span className="text-gray-500 dark:text-gray-400">像素</span>
+                <span className="text-gray-900 dark:text-gray-100">
                   {getMegapixels(image.width, image.height)}
                 </span>
               </div>
@@ -267,15 +287,15 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
           </div>
 
           {/* 文件路径 */}
-          <div className="px-4 py-3 border-t">
-            <h3 className="font-semibold text-gray-900 mb-3">文件路径</h3>
+          <div className="px-4 py-3 border-t dark:border-gray-700">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">文件路径</h3>
             <div className="flex gap-2">
-              <div className="flex-1 px-3 py-2 bg-gray-50 rounded text-sm text-gray-600 truncate">
+              <div className="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 rounded text-sm text-gray-600 dark:text-gray-300 truncate">
                 {image.path}
               </div>
               <button
                 onClick={() => navigator.clipboard.writeText(image.path)}
-                className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-gray-600"
+                className="px-3 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-600 dark:text-gray-300"
                 title="复制路径"
               >
                 <Copy className="w-4 h-4" />
@@ -284,17 +304,54 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
           </div>
 
           {/* 标签 */}
-          <div className="px-4 py-3 border-t">
-            <h3 className="font-semibold text-gray-900 mb-3">标签</h3>
+          <div className="px-4 py-3 border-t dark:border-gray-700">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">标签</h3>
             <TagInput
               availableTags={availableTags}
               selectedTagIds={image.tags.map((t) => t.id)}
               onChange={handleTagChange}
               placeholder="添加标签..."
             />
-            <p className="text-xs text-gray-500 mt-2">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
               输入标签名后按回车添加，点击标签可删除
             </p>
+          </div>
+
+          {/* 缩略图调试 */}
+          <div className="px-4 py-3 border-t dark:border-gray-700">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">缩略图调试</h3>
+            <div className="space-y-2">
+              <button
+                onClick={handleRegenerateThumbnails}
+                disabled={regenerating}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:bg-gray-50 dark:disabled:bg-gray-800 text-gray-700 dark:text-gray-200 rounded text-sm transition-colors"
+              >
+                <RefreshCw className={`w-4 h-4 ${regenerating ? "animate-spin" : ""}`} />
+                {regenerating ? "生成中..." : "重新生成缩略图"}
+              </button>
+              {regenResult && (
+                <div className="text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 dark:text-gray-400">耗时</span>
+                    <span className="text-gray-900 dark:text-gray-100">{regenResult.duration.toFixed(0)} ms</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 dark:text-gray-400">成功</span>
+                    <span className={regenResult.result.success ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+                      {regenResult.result.success ? "是" : "否"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500 dark:text-gray-400">尺寸</span>
+                    <span className="text-gray-900 dark:text-gray-100">
+                      {regenResult.result.width && regenResult.result.height
+                        ? `${regenResult.result.width}x${regenResult.result.height}`
+                        : "-"}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

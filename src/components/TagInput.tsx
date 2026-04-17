@@ -131,7 +131,7 @@ export function TagInput({
   return (
     <div ref={containerRef} className="relative">
       {/* 已选标签区域 */}
-      <div className="min-h-[42px] p-2 border rounded-lg bg-white flex flex-wrap gap-2 focus-within:ring-2 focus-within:ring-primary-500 focus-within:border-primary-500">
+      <div className="min-h-[42px] p-2 border dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 flex flex-wrap gap-2 focus-within:ring-2 focus-within:ring-primary-500 focus-within:border-primary-500 dark:focus-within:border-primary-500">
         {selectedTags.map((tag) => (
           <span
             key={tag.id}
@@ -160,19 +160,19 @@ export function TagInput({
           onFocus={() => setIsOpen(true)}
           onKeyDown={handleKeyDown}
           placeholder={selectedTags.length === 0 ? placeholder : ""}
-          className="flex-1 min-w-[120px] outline-none text-sm"
+          className="flex-1 min-w-[120px] outline-none text-sm bg-transparent text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
         />
       </div>
 
       {/* 下拉列表 */}
       {isOpen && (filteredTags.length > 0 || isNewTag) && (
-        <div className="absolute z-50 left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg max-h-[200px] overflow-auto">
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-white dark:bg-gray-800 border dark:border-gray-600 rounded-lg shadow-lg max-h-[200px] overflow-auto">
           {/* 新建标签选项 */}
           {isNewTag && (
             <button
               type="button"
               onClick={() => addTag(inputValue)}
-              className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 border-b"
+              className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 border-b dark:border-gray-600 dark:text-gray-100"
             >
               <Plus className="w-4 h-4 text-primary-500" />
               <span>
@@ -187,8 +187,8 @@ export function TagInput({
               key={tag.id}
               type="button"
               onClick={() => addTag(tag.name)}
-              className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 ${
-                index === highlightedIndex ? "bg-gray-100" : ""
+              className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 dark:text-gray-100 ${
+                index === highlightedIndex ? "bg-gray-100 dark:bg-gray-700" : ""
               }`}
             >
               <span

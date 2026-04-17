@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(findstr *)",
+      "Bash(cargo build)",
+      "Bash(cargo tree *)",
+      "Bash(rustc *)",
+      "Bash(select-object *)"
+    ]
+  },
+  "$version": 3
+}

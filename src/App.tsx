@@ -388,10 +388,10 @@ function MainApp() {
 
   if (isLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-white">
+      <div className="h-screen flex items-center justify-center bg-white dark:bg-gray-900">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-gray-200 border-t-primary-500 rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-gray-500 text-sm">加载中...</p>
+          <div className="w-8 h-8 border-2 border-gray-200 dark:border-gray-700 border-t-primary-500 rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-gray-500 dark:text-gray-400 text-sm">加载中...</p>
         </div>
       </div>
     );
@@ -411,27 +411,27 @@ function MainApp() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="bg-white rounded-lg shadow-xl w-[400px]">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-[400px]">
             {/* 标题 */}
-            <div className="px-4 py-3 border-b">
-              <h3 className="text-lg font-medium text-gray-900">确认删除位置</h3>
+            <div className="px-4 py-3 border-b dark:border-gray-700">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">确认删除位置</h3>
             </div>
 
             {/* 内容 */}
             <div className="p-4">
-              <p className="text-gray-600">
-                确定要删除位置 <span className="font-medium text-gray-900">"{deleteLocationDialog.locationName}"</span> 吗？
+              <p className="text-gray-600 dark:text-gray-300">
+                确定要删除位置 <span className="font-medium text-gray-900 dark:text-gray-100">"{deleteLocationDialog.locationName}"</span> 吗？
               </p>
-              <p className="text-sm text-gray-500 mt-2">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
                 删除位置将同时删除该位置下的所有图片记录（标签关联会保留）。
               </p>
             </div>
 
             {/* 底部按钮 */}
-            <div className="px-4 py-3 border-t flex justify-end gap-2">
+            <div className="px-4 py-3 border-t dark:border-gray-700 flex justify-end gap-2">
               <button
                 onClick={() => setDeleteLocationDialog({ isOpen: false, locationId: null, locationName: "" })}
-                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
               >
                 取消
               </button>
@@ -452,27 +452,27 @@ function MainApp() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="bg-white rounded-lg shadow-xl w-[420px]">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-[420px]">
             {/* 标题 */}
-            <div className="px-4 py-3 border-b">
-              <h3 className="text-lg font-medium text-gray-900">搜索索引需要重建</h3>
+            <div className="px-4 py-3 border-b dark:border-gray-700">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">搜索索引需要重建</h3>
             </div>
 
             {/* 内容 */}
             <div className="p-4">
-              <p className="text-gray-600">
+              <p className="text-gray-600 dark:text-gray-300">
                 检测到搜索索引与数据库不同步，可能导致搜索结果无法显示。
               </p>
-              <p className="text-sm text-gray-500 mt-2">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
                 建议重建搜索索引以修复此问题。重建过程可能需要一些时间，取决于图片数量。
               </p>
             </div>
 
             {/* 底部按钮 */}
-            <div className="px-4 py-3 border-t flex justify-end gap-2">
+            <div className="px-4 py-3 border-t dark:border-gray-700 flex justify-end gap-2">
               <button
                 onClick={() => setShowRebuildIndexPrompt(false)}
-                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                 disabled={isRebuildingIndex}
               >
                 稍后再说
@@ -516,6 +516,7 @@ function App() {
 
       {/* 详情页（从右侧滑入的覆盖层） */}
       <div
+        className="bg-white dark:bg-gray-900"
         style={{
           position: "absolute",
           top: 0,
@@ -525,7 +526,6 @@ function App() {
           transform: store.isDetailOpen ? "translateX(0)" : "translateX(100%)",
           transition: "transform 0.3s ease",
           zIndex: 100,
-          background: "white",
         }}
       >
         {store.detailImageId && (

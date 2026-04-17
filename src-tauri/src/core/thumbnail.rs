@@ -9,9 +9,9 @@ use crate::models::{
     CreateThumbnailRequest, ThumbnailProgress, ThumbnailResult, ThumbnailSize, ThumbnailTask,
 };
 
-use image::{GenericImageView, Pixel};
+use image::GenericImageView;
 
-/// 根据 EXIF Orientation 标签修正图片方向
+/// 根据 EXIF Orientation 标签修正图片方向（从文件路径）
 fn apply_orientation(img: image::DynamicImage, path: &Path) -> image::DynamicImage {
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
@@ -23,6 +23,77 @@ fn apply_orientation(img: image::DynamicImage, path: &Path) -> image::DynamicIma
         Ok(e) => e,
         Err(_) => return img,
     };
+    
+    // 直接处理方向修正
+    let orientation = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY);
+    if let Some(orientation) = orientation {
+        match orientation.value.get_uint(0) {
+            Some(2) => img.fliph(),
+            Some(3) => img.rotate180(),
+            Some(4) => img.flipv(),
+            Some(5) => img.rotate90().fliph(),
+            Some(6) => img.rotate90(),
+            Some(7) => img.rotate270().fliph(),
+            Some(8) => img.rotate270(),
+            _ => img,
+        }
+    } else {
+        img
+    }
+}
+
+/// 根据 EXIF Orientation 标签修正图片方向（从内存 bytes - 优化版）
+fn apply_orientation_from_bytes(img: image::DynamicImage, bytes: &[u8]) -> image::DynamicImage {
+    // 优化：快速检查是否有EXIF数据
+    // JPEG文件中EXIF通常在前64KB内
+    if bytes.len() < 6 {
+        return img;
+    }
+    
+    // 快速检查JPEG SOI marker + APP1 (EXIF) marker
+    // JPEG starts with 0xFF 0xD8, EXIF is in APP1 (0xFF 0xE1)
+    if bytes[0] != 0xFF || bytes[1] != 0xD8 {
+        // 不是JPEG文件
+        return img;
+    }
+    
+    // 查找APP1 marker (0xFF 0xE1)
+    let mut i = 2;
+    let has_exif = loop {
+        if i + 3 >= bytes.len() || i >= 65536 {
+            // 超过64KB还没找到，假设没有EXIF
+            break false;
+        }
+        if bytes[i] == 0xFF && bytes[i + 1] == 0xE1 {
+            // 检查EXIF header "Exif\0\0"
+            if i + 10 < bytes.len() {
+                let exif_header = &bytes[i + 4..i + 10];
+                if exif_header == b"Exif\0\0" {
+                    break true;
+                }
+            }
+        }
+        if bytes[i] == 0xFF && (bytes[i + 1] == 0xC0 || bytes[i + 1] == 0xC2) {
+            // 找到SOF marker，说明已经过了EXIF段
+            break false;
+        }
+        i += 1;
+    };
+    
+    if !has_exif {
+        return img;
+    }
+    
+    // 只有确认有EXIF时才解析
+    let mut cursor = std::io::Cursor::new(bytes);
+    let exifreader = exif::Reader::new();
+    
+    let exif = match exifreader.read_from_container(&mut cursor) {
+        Ok(e) => e,
+        Err(_) => return img,
+    };
+    
+    // 快速读取Orientation值
     let orientation = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY);
     if let Some(orientation) = orientation {
         match orientation.value.get_uint(0) {
@@ -98,6 +169,7 @@ impl ThumbnailGenerator {
         image_path: &str,
         image_hash: &str,
         size: ThumbnailSize,
+        force: bool,
     ) -> Result<ThumbnailResult> {
         let task = ThumbnailTask {
             image_id,
@@ -109,7 +181,7 @@ impl ThumbnailGenerator {
         let thumb_dir = self.thumbnail_dir.read().await;
         
         // 检查是否已存在且文件有效（使用 hash 作为键）
-        if ThumbnailRepository::exists(&self.pool, image_hash, size.as_str()).await? {
+        if !force && ThumbnailRepository::exists(&self.pool, image_hash, size.as_str()).await? {
             let thumbnail = ThumbnailRepository::get_by_hash_and_size(
                 &self.pool,
                 image_hash,
@@ -287,7 +359,7 @@ impl ThumbnailGenerator {
         
         for size in sizes {
             let result = self
-                .generate_single(image_id, image_path, image_hash, size)
+                .generate_single(image_id, image_path, image_hash, size, false)
                 .await?;
             results.push(result);
         }
@@ -382,8 +454,8 @@ impl ThumbnailGenerator {
         }
     }
     
-    /// 创建缩略图文件（核心图片处理逻辑）
-    async fn create_thumbnail(
+    /// 创建缩略图文件（核心图片处理逻辑 - image crate 原版，保留备用）
+    async fn create_thumbnail_image_rs(
         &self,
         source: &Path,
         output: &Path,
@@ -391,36 +463,36 @@ impl ThumbnailGenerator {
     ) -> Result<(i32, i32)> {
         let target_size = size.target_size() as u32;
         let quality = self.quality;
-        
+
         let source = source.to_path_buf();
         let output = output.to_path_buf();
-        
+
         // 在阻塞线程池中执行图片处理
         let result = tokio::task::spawn_blocking(move || -> Result<(i32, i32)> {
-            tracing::debug!("Opening image: {:?}", source);
-            
-            // 加载图片
-            let img = match image::open(&source) {
-                Ok(img) => img,
-                Err(e) => {
-                    tracing::error!("Failed to open image {:?}: {}", source, e);
-                    return Err(anyhow::anyhow!("Failed to open image: {}", e));
-                }
-            };
-            
-            // 根据 EXIF Orientation 修正方向（苹果设备拍摄的照片常见）
-            let img = apply_orientation(img, &source);
-            
-            tracing::debug!("Image opened successfully: {:?}, dimensions: {:?}", source, img.dimensions());
-            
+            let start_time = std::time::Instant::now();
+            tracing::debug!("Processing thumbnail: {:?}", source);
+
+            // 1. 读取文件到内存
+            let bytes = std::fs::read(&source)
+                .map_err(|e| anyhow::anyhow!("Failed to read image: {}", e))?;
+            let t1 = start_time.elapsed();
+            tracing::info!("[PERF] File read: {} bytes, elapsed: {:?}", bytes.len(), t1);
+
+            // 2. 直接从内存解码
+            let img = image::load_from_memory(&bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to decode image: {}", e))?;
+            let t2 = start_time.elapsed();
             let (orig_width, orig_height) = img.dimensions();
-            
-            // 如果图片本身就很小，直接复制原图（但转为JPEG）
-            if orig_width <= target_size && orig_height <= target_size {
-                tracing::debug!("Image {:?} is smaller than target size, converting to JPEG", source);
-            }
-            
-            // 计算新的尺寸（保持宽高比）
+            tracing::info!("[PERF] Image decoded: {}x{}, decode elapsed: {:?}", orig_width, orig_height, t2 - t1);
+
+            let needs_resize = orig_width > target_size || orig_height > target_size;
+
+            // 3. 应用EXIF方向修正
+            let img = apply_orientation_from_bytes(img, &bytes);
+            let t3 = start_time.elapsed();
+            tracing::info!("[PERF] EXIF applied, elapsed: {:?}", t3 - t2);
+
+            // 4. 计算目标尺寸
             let (new_width, new_height) = if orig_width > orig_height {
                 let ratio = target_size as f32 / orig_width as f32;
                 (target_size, (orig_height as f32 * ratio).max(1.0) as u32)
@@ -428,74 +500,112 @@ impl ThumbnailGenerator {
                 let ratio = target_size as f32 / orig_height as f32;
                 ((orig_width as f32 * ratio).max(1.0) as u32, target_size)
             };
-            
-            // 确保尺寸至少为 1x1
             let new_width = new_width.max(1);
             let new_height = new_height.max(1);
-            
-            // 缩放图片（使用更高质量的过滤器）
-            // 使用 thumbnail 方法，它返回的 DynamicImage 更可靠
-            let resized = img.thumbnail(new_width, new_height);
-            let (actual_width, actual_height) = resized.dimensions();
-            
-            // 创建 RGB8 ImageBuffer，确保缓冲区大小正确
-            let mut rgb_img = image::ImageBuffer::new(actual_width, actual_height);
-            
-            // 将 resized 的像素复制到 rgb_img
-            for (x, y, pixel) in resized.pixels() {
-                let rgb = pixel.to_rgb();
-                rgb_img.put_pixel(x, y, rgb);
-            }
-            
-            // 创建临时文件路径
+
+            // 5. 缩放并转换为RGB（使用Nearest滤波器提升速度）
+            let rgb_img = if needs_resize {
+                img.resize(new_width, new_height, image::imageops::FilterType::Nearest)
+                    .to_rgb8()
+            } else {
+                img.to_rgb8()
+            };
+            let t4 = start_time.elapsed();
+            let (actual_width, actual_height) = rgb_img.dimensions();
+            tracing::info!("[PERF] Resize + to_rgb8: {}x{}, elapsed: {:?}", actual_width, actual_height, t4 - t3);
+
+            // 6. 创建临时文件路径
             let temp_output = output.with_extension("tmp");
-            
-            // 先写入临时文件，避免产生空文件
+
+            // 7. 写入JPEG文件
             let mut temp_file = std::fs::File::create(&temp_output)
                 .with_context(|| format!("Failed to create temp file: {:?}", temp_output))?;
-            
+
             let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
                 &mut temp_file,
                 quality as u8,
             );
-            
-            let encode_result = encoder
+
+            encoder
                 .encode(
                     &rgb_img,
                     actual_width,
                     actual_height,
                     image::ExtendedColorType::Rgb8,
-                );
-            
-            // 如果编码失败，删除临时文件并返回错误
-            if let Err(e) = encode_result {
-                let _ = std::fs::remove_file(&temp_output);
-                return Err(e).with_context(|| format!("Failed to encode JPEG: {:?}", temp_output));
-            }
-            
-            // 使用实际尺寸返回
-            let new_width = actual_width;
-            let new_height = actual_height;
-            
-            // 编码成功后，重命名为最终文件
+                )
+                .map_err(|e| anyhow::anyhow!("Failed to encode JPEG: {}", e))?;
+            let t4 = start_time.elapsed();
+            tracing::info!("[PERF] JPEG encode: elapsed: {:?}", t4 - t3);
+
+            // 8. 重命名为最终文件
             if let Err(e) = std::fs::rename(&temp_output, &output) {
                 let _ = std::fs::remove_file(&temp_output);
-                return Err(e).with_context(|| format!("Failed to rename temp file to output: {:?}", output));
+                return Err(e).with_context(|| format!("Failed to rename temp file: {:?}", output));
             }
-            
-            tracing::debug!(
-                "Thumbnail created: {:?} -> {}x{} (target: {})",
+            let t5 = start_time.elapsed();
+            tracing::info!("[PERF] File rename: elapsed: {:?}", t5 - t4);
+
+            tracing::info!(
+                "Thumbnail created: {:?} -> {}x{} (target: {}), total: {:?}",
                 output,
-                new_width,
-                new_height,
-                target_size
+                actual_width,
+                actual_height,
+                target_size,
+                start_time.elapsed()
             );
-            
-            Ok((new_width as i32, new_height as i32))
+
+            Ok((actual_width as i32, actual_height as i32))
         })
         .await
         .map_err(|e| anyhow::anyhow!("Task panicked: {}", e))?;
-        
+
+        result
+    }
+
+    /// 创建缩略图文件（核心图片处理逻辑 - libvips 版）
+    async fn create_thumbnail(
+        &self,
+        source: &Path,
+        output: &Path,
+        size: ThumbnailSize,
+    ) -> Result<(i32, i32)> {
+        let target_size = size.target_size();
+        let quality = self.quality as i32;
+
+        let source = source.to_path_buf();
+        let output = output.to_path_buf();
+
+        let result = tokio::task::spawn_blocking(move || -> Result<(i32, i32)> {
+            let start_time = std::time::Instant::now();
+            tracing::debug!("Processing thumbnail with libvips: {:?}", source);
+
+            let temp_output = output.with_extension("tmp");
+
+            match crate::vips::create_thumbnail(&source, &temp_output, target_size, quality) {
+                Ok((w, h)) => {
+                    if let Err(e) = std::fs::rename(&temp_output, &output) {
+                        let _ = std::fs::remove_file(&temp_output);
+                        return Err(e).with_context(|| format!("Failed to rename temp file: {:?}", output));
+                    }
+                    tracing::info!(
+                        "Thumbnail created with libvips: {:?} -> {}x{} (target: {}), total: {:?}",
+                        output,
+                        w,
+                        h,
+                        target_size,
+                        start_time.elapsed()
+                    );
+                    Ok((w, h))
+                }
+                Err(e) => {
+                    let _ = std::fs::remove_file(&temp_output);
+                    Err(anyhow::anyhow!("libvips thumbnail failed: {}", e))
+                }
+            }
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Task panicked: {}", e))?;
+
         result
     }
     
@@ -639,9 +749,10 @@ impl ThumbnailService {
         image_path: &str,
         image_hash: &str,
         size: ThumbnailSize,
+        force: bool,
     ) -> Result<ThumbnailResult> {
         self.generator
-            .generate_single(image_id, image_path, image_hash, size)
+            .generate_single(image_id, image_path, image_hash, size, force)
             .await
     }
     

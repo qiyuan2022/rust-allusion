@@ -70,24 +70,24 @@ export function Header({
   }, [onSearchChange]);
 
   return (
-    <div className="h-14 bg-white border-b flex items-center px-4 gap-4">
+    <div className="h-14 bg-white dark:bg-gray-900 border-b dark:border-gray-700 flex items-center px-4 gap-4">
 
       {/* 搜索框 - 占据主要位置 */}
       <div className="flex-1 max-w-2xl">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             value={inputValue}
             onChange={(e) => handleInputChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="搜索图片..."
-            className="w-full pl-10 pr-10 py-1.5 bg-gray-100 border-0 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all"
+            className="w-full pl-10 pr-10 py-1.5 bg-gray-100 dark:bg-gray-800 border-0 rounded-lg text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white dark:focus:bg-gray-700 transition-all"
           />
           {inputValue && (
             <button
               onClick={handleClearSearch}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
             >
               <X className="w-4 h-4" />
             </button>
@@ -99,20 +99,20 @@ export function Header({
       <div className="flex items-center gap-1">
         {/* 选择计数 */}
         {selectedCount > 0 ? (
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-primary-50 text-primary-700 rounded-lg text-sm">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded-lg text-sm">
             <Images className="w-4 h-4" />
             <span className="font-medium">{selectedCount}</span>
-            <span className="text-primary-500">/</span>
+            <span className="text-primary-500 dark:text-primary-400">/</span>
             <span>{displayTotalCount}</span>
           </div>
         ) : (
-          <span className="text-sm text-gray-500 px-3">{displayTotalCount} 张图片</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400 px-3">{displayTotalCount} 张图片</span>
         )}
 
-        <div className="w-px h-6 bg-gray-200 mx-1" />
+        <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" />
 
         {/* 视图切换 */}
-        <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+        <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
           <ViewModeButton
             mode="justified"
             currentMode={viewMode}
@@ -138,7 +138,7 @@ export function Header({
         <div className="relative">
           <button
             onClick={() => setShowSortMenu(!showSortMenu)}
-            className="flex items-center gap-1 px-3 py-1.5 text-gray-600 hover:bg-gray-100 rounded-lg text-sm transition-colors"
+            className="flex items-center gap-1 px-3 py-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-sm transition-colors"
           >
             <ArrowUpDown className="w-4 h-4" />
             <span>排序</span>
@@ -150,7 +150,7 @@ export function Header({
                 className="fixed inset-0 z-40"
                 onClick={() => setShowSortMenu(false)}
               />
-              <div className="absolute right-0 top-full mt-1 w-44 bg-white border rounded-lg shadow-lg z-50 py-1">
+              <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-gray-800 border dark:border-gray-600 rounded-lg shadow-lg z-50 py-1">
                 {(
                   [
                     { value: "modified_at", label: "修改时间" },
@@ -173,8 +173,8 @@ export function Header({
                         }
                         setShowSortMenu(false);
                       }}
-                      className={`w-full px-4 py-2 flex items-center justify-between text-sm hover:bg-gray-50 transition-colors ${
-                        isSelected ? "text-primary-600 bg-primary-50" : "text-gray-700"
+                      className={`w-full px-4 py-2 flex items-center justify-between text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
+                        isSelected ? "text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/20" : "text-gray-700 dark:text-gray-200"
                       }`}
                     >
                       <span>{option.label}</span>
@@ -196,7 +196,7 @@ export function Header({
         {/* 刷新 */}
         <button
           onClick={onRefresh}
-          className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
+          className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
           title="刷新"
         >
           <RefreshCw className="w-4 h-4" />
@@ -224,7 +224,7 @@ export function Header({
         {/* 设置 */}
         <button
           onClick={() => setIsSettingsOpen(true)}
-          className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
+          className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
           title="设置"
         >
           <Settings className="w-4 h-4" />

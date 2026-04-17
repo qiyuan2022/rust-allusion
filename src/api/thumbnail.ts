@@ -41,11 +41,13 @@ export interface GenerateAllResult {
  */
 export async function generateThumbnail(
   imageId: number,
-  sizeType: ThumbnailSize
+  sizeType: ThumbnailSize,
+  force?: boolean
 ): Promise<ThumbnailResult> {
   return await invoke<ThumbnailResult>("generate_thumbnail", {
     imageId,
     sizeType,
+    force,
   });
 }
 

@@ -47,7 +47,7 @@ pub async fn get_or_generate_thumbnail_by_hash(
 
     let result = state
         .thumbnail_service
-        .generate_now(image_id, &image_path, &hash, size)
+        .generate_now(image_id, &image_path, &hash, size, false)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -64,6 +64,7 @@ pub async fn generate_thumbnail(
     state: State<'_, crate::AppState>,
     image_id: i64,
     size_type: String,
+    force: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     // 获取图片信息
     let pool = state.db.lock().await.clone();
@@ -79,7 +80,7 @@ pub async fn generate_thumbnail(
     // 生成缩略图
     let result = state
         .thumbnail_service
-        .generate_now(image_id, &image.path, &image.hash, size)
+        .generate_now(image_id, &image.path, &image.hash, size, force.unwrap_or(false))
         .await
         .map_err(|e| e.to_string())?;
 
@@ -155,7 +156,7 @@ pub async fn get_or_generate_thumbnail(
     // 3. 生成缩略图
     let result = state
         .thumbnail_service
-        .generate_now(image_id, &image.path, &image.hash, size)
+        .generate_now(image_id, &image.path, &image.hash, size, false)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -381,7 +382,7 @@ pub async fn fix_missing_thumbnails(
                     };
 
                     match thumbnail_service
-                        .generate_now(image_id, &image.path, &image.hash, size)
+                        .generate_now(image_id, &image.path, &image.hash, size, false)
                         .await
                     {
                         Ok(result) => {

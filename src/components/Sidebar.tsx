@@ -134,23 +134,23 @@ export function Sidebar({
 
   return (
     <>
-      <div className={`h-full flex flex-col bg-white ${className}`}>
+      <div className={`h-full flex flex-col bg-white dark:bg-gray-900 ${className}`}>
         {/* Locations Section */}
-        <div className="border-b">
+        <div className="border-b dark:border-gray-700">
           <div className="flex items-center justify-between px-4 py-3">
             <button
               onClick={() => toggleSection("locations")}
-              className="flex items-center gap-2 flex-1 hover:bg-gray-50 transition-colors text-left"
+              className="flex items-center gap-2 flex-1 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left rounded px-2 py-1 -ml-2"
             >
-              <span className="font-medium text-gray-700 flex items-center gap-2">
+              <span className="font-medium text-gray-700 dark:text-gray-200 flex items-center gap-2">
                 <Folder className="w-4 h-4" />
                 位置
-                <span className="text-xs text-gray-400 font-normal">({locations.length})</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500 font-normal">({locations.length})</span>
               </span>
               {expandedSections.locations ? (
-                <ChevronDown className="w-4 h-4 text-gray-400" />
+                <ChevronDown className="w-4 h-4 text-gray-400 dark:text-gray-500" />
               ) : (
-                <ChevronRight className="w-4 h-4 text-gray-400" />
+                <ChevronRight className="w-4 h-4 text-gray-400 dark:text-gray-500" />
               )}
             </button>
             
@@ -161,7 +161,7 @@ export function Sidebar({
                 handleAddLocation();
               }}
               disabled={isScanning}
-              className="ml-2 p-1.5 text-gray-400 hover:text-primary-500 hover:bg-primary-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="ml-2 p-1.5 text-gray-400 hover:text-primary-500 dark:hover:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               title="添加位置"
             >
               <Plus className="w-4 h-4" />
@@ -171,7 +171,7 @@ export function Sidebar({
           {expandedSections.locations && (
             <div className="px-2 pb-2">
               {locations.length === 0 ? (
-                <p className="px-4 py-2 text-sm text-gray-400">暂无位置</p>
+                <p className="px-4 py-2 text-sm text-gray-400 dark:text-gray-500">暂无位置</p>
               ) : (
                 <div className="space-y-1">
                   {locations.map((location) => (
@@ -184,8 +184,8 @@ export function Sidebar({
                           flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer text-sm
                           transition-colors
                           ${selectedLocationId === location.id
-                            ? "bg-primary-50 text-primary-700"
-                            : "hover:bg-gray-100 text-gray-600"
+                            ? "bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300"
+                            : "hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
                           }
                         `}
                         onClick={() => onSelectLocation?.(location)}
@@ -195,7 +195,7 @@ export function Sidebar({
                           <span className="truncate flex-1">{location.name}</span>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
-                          <span className="text-xs text-gray-400">{location.image_count}</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500">{location.image_count}</span>
                           
                           {/* 扫描按钮 */}
                           <button
@@ -235,16 +235,16 @@ export function Sidebar({
         <div className="flex-1 overflow-hidden flex flex-col">
           <button
             onClick={() => toggleSection("tags")}
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors border-b"
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors border-b dark:border-gray-700"
           >
-            <span className="font-medium text-gray-700 flex items-center gap-2">
+            <span className="font-medium text-gray-700 dark:text-gray-200 flex items-center gap-2">
               <TagIcon className="w-4 h-4" />
               标签
             </span>
             {expandedSections.tags ? (
-              <ChevronDown className="w-4 h-4 text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-gray-400 dark:text-gray-500" />
             ) : (
-              <ChevronRight className="w-4 h-4 text-gray-400" />
+              <ChevronRight className="w-4 h-4 text-gray-400 dark:text-gray-500" />
             )}
           </button>
 

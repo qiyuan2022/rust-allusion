@@ -10,6 +10,7 @@ mod core;
 mod db;
 mod models;
 mod handlers;
+mod vips;
 
 use core::{
     FileMonitor, IndexingWorker, SearchService,ThumbnailService,
@@ -28,7 +29,16 @@ pub struct AppState {
 
 fn main() {
     tracing_subscriber::fmt::init();
-    
+
+    match vips::initialize() {
+        Ok(()) => {
+            tracing::info!("libvips version: {}", vips::version());
+        }
+        Err(e) => {
+            tracing::warn!("Failed to initialize libvips: {}", e);
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_shell::init())

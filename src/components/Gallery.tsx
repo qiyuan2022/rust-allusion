@@ -341,7 +341,7 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
                 relative aspect-[4/3] overflow-hidden cursor-pointer
                 transition-all duration-150
                 shadow-md hover:shadow-xl
-                ${isSelected ? "ring-2 ring-primary-500 shadow-lg shadow-primary-200" : ""}
+                ${isSelected ? "ring-2 ring-primary-500 shadow-lg shadow-primary-200 dark:shadow-primary-900/30" : ""}
               `}
               onClick={(e) => {
                 e.stopPropagation();
@@ -392,7 +392,7 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
       return (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 px-4">
           {Array.from({ length: 12 }).map((_, i) => (
-            <div key={i} className="aspect-[4/3] bg-gray-100 rounded animate-pulse" />
+            <div key={i} className="aspect-[4/3] bg-gray-100 dark:bg-gray-800 rounded animate-pulse" />
           ))}
         </div>
       );
@@ -441,7 +441,7 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
                 relative overflow-hidden cursor-pointer
                 transition-all duration-150
                 shadow-md hover:shadow-xl
-                ${isSelected ? "ring-2 ring-primary-500 shadow-lg shadow-primary-200" : ""}
+                ${isSelected ? "ring-2 ring-primary-500 shadow-lg shadow-primary-200 dark:shadow-primary-900/30" : ""}
               `}
               style={{
                 height: `${height}px`,
@@ -499,7 +499,7 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="flex gap-2">
               {Array.from({ length: 4 }).map((_, j) => (
-                <div key={j} className="h-24 bg-gray-100 rounded animate-pulse flex-1" />
+                <div key={j} className="h-24 bg-gray-100 dark:bg-gray-800 rounded animate-pulse flex-1" />
               ))}
             </div>
           ))}
@@ -521,11 +521,11 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
       onClick={() => store.clearSelection()}
     >
       {store.images.length === 0 ? (
-        <div className="h-full flex items-center justify-center text-gray-400">
+        <div className="h-full flex items-center justify-center text-gray-400 dark:text-gray-500">
           <div className="text-center">
-            <Images className="w-16 h-16 mx-auto mb-4 text-gray-300" strokeWidth={1.5} />
-            <p className="text-lg font-medium text-gray-500">暂无图片</p>
-            <p className="text-sm mt-1">拖入文件夹或点击导入开始</p>
+            <Images className="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" strokeWidth={1.5} />
+            <p className="text-lg font-medium text-gray-500 dark:text-gray-300">暂无图片</p>
+            <p className="text-sm mt-1 dark:text-gray-400">拖入文件夹或点击导入开始</p>
           </div>
         </div>
       ) : (
@@ -536,22 +536,22 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
           {/* 底部状态栏 */}
           <div className="flex items-center justify-center p-8">
             {store.isLoading && store.allImages.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 text-gray-400">
-                <div className="w-5 h-5 border-2 border-gray-200 border-t-gray-400 rounded-full animate-spin" />
+              <div className="flex flex-col items-center gap-2 text-gray-400 dark:text-gray-500">
+                <div className="w-5 h-5 border-2 border-gray-200 dark:border-gray-700 border-t-gray-400 dark:border-t-gray-500 rounded-full animate-spin" />
                 <span>正在加载图片...</span>
               </div>
             ) : store.isLoading ? (
-              <div className="flex flex-col items-center gap-2 text-gray-400">
-                <div className="w-5 h-5 border-2 border-gray-200 border-t-gray-400 rounded-full animate-spin" />
+              <div className="flex flex-col items-center gap-2 text-gray-400 dark:text-gray-500">
+                <div className="w-5 h-5 border-2 border-gray-200 dark:border-gray-700 border-t-gray-400 dark:border-t-gray-500 rounded-full animate-spin" />
                 <span>正在处理...</span>
               </div>
             ) : store.isSearching ? (
-              <span className="text-gray-400">
+              <span className="text-gray-400 dark:text-gray-500">
                 搜索结果: {store.images.length} 张图片
                 {store.searchQuery && ` (关键词: "${store.searchQuery}")`}
               </span>
             ) : (
-              <span className="text-gray-400">
+              <span className="text-gray-400 dark:text-gray-500">
                 共 {store.allImages.length} 张图片
               </span>
             )}

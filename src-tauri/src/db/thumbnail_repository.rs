@@ -13,7 +13,7 @@ impl ThumbnailRepository {
         
         let thumbnail = sqlx::query_as::<_, Thumbnail>(
             r#"
-            INSERT INTO thumbnails (image_hash, size_type, path, width, height, file_size, created_at)
+            INSERT OR REPLACE INTO thumbnails (image_hash, size_type, path, width, height, file_size, created_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             RETURNING *
             "#

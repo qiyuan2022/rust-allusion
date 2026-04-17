@@ -3,6 +3,7 @@ import { X, Settings, FolderInput, Info, Upload, FolderOpen } from "lucide-react
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { getThumbnailDir, setThumbnailDir } from "../api/settings";
+import { useGalleryStore } from "../stores/gallery";
 
 type TabId = "general" | "import" | "about";
 
@@ -35,11 +36,11 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-white rounded-xl shadow-2xl w-[60vw] h-[500px] flex overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-[60vw] h-[500px] flex overflow-hidden">
         {/* 左侧 Tabs */}
-        <div className="w-48 bg-gray-50 border-r flex flex-col">
-          <div className="p-4 border-b">
-            <h2 className="font-semibold text-gray-800">设置</h2>
+        <div className="w-48 bg-gray-50 dark:bg-gray-800 border-r dark:border-gray-700 flex flex-col">
+          <div className="p-4 border-b dark:border-gray-700">
+            <h2 className="font-semibold text-gray-800 dark:text-gray-100">设置</h2>
           </div>
           <nav className="flex-1 p-2">
             {tabs.map((tab) => (
@@ -48,8 +49,8 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                 onClick={() => setActiveTab(tab.id)}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
                   activeTab === tab.id
-                    ? "bg-white text-primary-600 shadow-sm"
-                    : "text-gray-600 hover:bg-gray-100"
+                    ? "bg-white dark:bg-gray-700 text-primary-600 dark:text-primary-400 shadow-sm"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50"
                 }`}
               >
                 {tab.icon}
@@ -62,13 +63,13 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
         {/* 右侧内容 */}
         <div className="flex-1 flex flex-col">
           {/* 头部 */}
-          <div className="flex items-center justify-between px-6 py-4 border-b">
-            <h3 className="font-medium text-gray-800">
+          <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700">
+            <h3 className="font-medium text-gray-800 dark:text-gray-100">
               {tabs.find((t) => t.id === activeTab)?.label}
             </h3>
             <button
               onClick={onClose}
-              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -90,6 +91,7 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
 function GeneralSettings() {
   const [thumbDir, setThumbDir] = useState<string>("");
   const [isMoving, setIsMoving] = useState(false);
+  const { isDarkMode, setDarkMode } = useGalleryStore();
 
   useEffect(() => {
     getThumbnailDir().then(setThumbDir).catch(console.error);
@@ -115,12 +117,12 @@ function GeneralSettings() {
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        <h4 className="text-sm font-medium text-gray-900">界面设置</h4>
-        
+        <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">界面设置</h4>
+
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-gray-700">启动时自动扫描</p>
-            <p className="text-xs text-gray-500">应用启动时自动扫描所有位置</p>
+            <p className="text-sm text-gray-700 dark:text-gray-200">启动时自动扫描</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">应用启动时自动扫描所有位置</p>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
             <input type="checkbox" className="sr-only peer" />
@@ -130,44 +132,49 @@ function GeneralSettings() {
 
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-gray-700">深色模式</p>
-            <p className="text-xs text-gray-500">切换应用主题色</p>
+            <p className="text-sm text-gray-700 dark:text-gray-200">深色模式</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">切换应用主题色</p>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" className="sr-only peer" />
-            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={isDarkMode}
+              onChange={(e) => setDarkMode(e.target.checked)}
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500 dark:bg-gray-600"></div>
           </label>
         </div>
       </div>
 
-      <div className="border-t pt-4">
-        <h4 className="text-sm font-medium text-gray-900 mb-4">缓存设置</h4>
+      <div className="border-t dark:border-gray-700 pt-4">
+        <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">缓存设置</h4>
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-700">缩略图缓存</p>
-              <p className="text-xs text-gray-500">自动清理超过 30 天的缓存</p>
+              <p className="text-sm text-gray-700 dark:text-gray-200">缩略图缓存</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">自动清理超过 30 天的缓存</p>
             </div>
-            <button className="px-3 py-1.5 text-sm text-primary-600 hover:bg-primary-50 rounded-lg transition-colors">
+            <button className="px-3 py-1.5 text-sm text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors">
               立即清理
             </button>
           </div>
 
           <div className="flex items-start justify-between">
             <div className="min-w-0 flex-1 mr-4">
-              <p className="text-sm text-gray-700">缩略图存储位置</p>
-              <p className="text-xs text-gray-500 mt-0.5 break-all">{thumbDir || "加载中..."}</p>
+              <p className="text-sm text-gray-700 dark:text-gray-200">缩略图存储位置</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 break-all">{thumbDir || "加载中..."}</p>
             </div>
             <button
               onClick={handleSelectDir}
               disabled={isMoving}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white border rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white dark:bg-gray-800 border dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
             >
               <FolderOpen className="w-4 h-4" />
               {isMoving ? "迁移中..." : "更改目录"}
             </button>
           </div>
-          <p className="text-xs text-gray-400">更改目录时会自动将现有缩略图文件迁移到新位置</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">更改目录时会自动将现有缩略图文件迁移到新位置</p>
         </div>
       </div>
     </div>
