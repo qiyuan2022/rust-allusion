@@ -55,7 +55,13 @@
         "center": false,
         "visible": false,
         "minWidth": 800,
-        "minHeight": 600
+        "minHeight": 600,
+        "transparent": true,
+        "shadow": true,
+        "windowEffects": {
+          "effects": ["mica"],
+          "state": "active"
+        }
       }
     ],
     "security": {

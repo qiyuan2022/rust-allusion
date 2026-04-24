@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { Loader2, ImageOff } from "lucide-react";
+import { ImageProhibitedRegular } from "@fluentui/react-icons";
+import { Spinner } from "@fluentui/react-components";
 import { getOrGenerateThumbnailByHash, ThumbnailSize } from "../api/thumbnail";
 
 interface LazyThumbnailProps {
@@ -37,15 +38,6 @@ function getCacheKey(hash: string, size: ThumbnailSize): string {
 
 /**
  * 【懒加载方案 + Hash 直接拼接】按需加载缩略图的组件
- * 
- * 特性：
- * - 优先使用数据库中的缩略图路径
- * - 使用全局缓存避免重复请求
- * - 使用全局 Set 避免并发重复请求
- * - 如果没有，根据 hash 直接拼接路径检查文件
- * - 如果文件不存在，自动异步生成
- * - 生成过程中显示加载动画
- * - 生成失败显示占位符
  */
 export function LazyThumbnail({
   imageId,
@@ -68,7 +60,6 @@ export function LazyThumbnail({
     if (existingPath) {
       const convertedUrl = convertFileSrc(existingPath.replace(/\\/g, "/"));
       setUrl(convertedUrl);
-      // 同时缓存
       thumbnailCache.set(cacheKey, convertedUrl);
       return;
     }
@@ -81,7 +72,6 @@ export function LazyThumbnail({
 
     // 3. 检查是否正在加载中（其他组件已发起请求）
     if (loadingSet.has(cacheKey)) {
-      // 等待其他请求完成
       setIsLoading(true);
       const checkInterval = setInterval(() => {
         if (!loadingSet.has(cacheKey)) {
@@ -111,14 +101,12 @@ export function LazyThumbnail({
       if (thumbPath) {
         const convertedUrl = convertFileSrc(thumbPath.replace(/\\/g, "/"));
         setUrl(convertedUrl);
-        // 存入全局缓存
         thumbnailCache.set(cacheKey, convertedUrl);
       }
     } catch (error) {
       console.error("Failed to load thumbnail:", error);
     } finally {
       setIsLoading(false);
-      // 移除加载标记
       loadingSet.delete(cacheKey);
     }
   }, [imageId, hash, imagePath, size, existingPath]);
@@ -127,7 +115,6 @@ export function LazyThumbnail({
     loadThumbnail();
   }, [loadThumbnail]);
 
-  // 获取文件名首字母作为占位符
   const placeholderChar = fileName?.[0]?.toUpperCase() || "?";
 
   // 加载中状态
@@ -136,8 +123,8 @@ export function LazyThumbnail({
       <div
         className={`bg-gray-100 flex flex-col items-center justify-center text-gray-400 ${className}`}
       >
-        <Loader2 className="w-6 h-6 animate-spin mb-1" />
-        <span className="text-xs">加载中...</span>
+        <Spinner size="tiny" />
+        <span className="text-xs mt-1">加载中...</span>
       </div>
     );
   }

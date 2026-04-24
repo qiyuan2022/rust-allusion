@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { TagTreeNode, Tag, moveTag, deleteTag } from "../api/tags";
-import { ChevronRight, X } from "lucide-react";
+import { ChevronRightRegular, DismissRegular } from "@fluentui/react-icons";
+import { Button } from "@fluentui/react-components";
 
 interface TagTreeProps {
   nodes: TagTreeNode[];
@@ -131,19 +132,22 @@ function TagTreeItem({
       >
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {hasChildren ? (
-            <button
+            <Button
+              appearance="subtle"
+              icon={
+                <ChevronRightRegular
+                  className={`w-3 h-3 transition-transform ${
+                    isExpanded ? "rotate-90" : ""
+                  }`}
+                />
+              }
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleExpand(node.id);
               }}
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-200 dark:hover:bg-gray-700"
-            >
-              <ChevronRight
-                className={`w-3 h-3 transition-transform ${
-                  isExpanded ? "rotate-90" : ""
-                }`}
-              />
-            </button>
+              size="small"
+              style={{ minWidth: "20px", width: "20px", height: "20px", padding: 0 }}
+            />
           ) : (
             <span className="w-5" />
           )}
@@ -161,13 +165,14 @@ function TagTreeItem({
         </div>
 
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
+          <Button
+            appearance="subtle"
+            icon={<DismissRegular fontSize={16} />}
             onClick={handleDelete}
-            className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-500 rounded"
+            size="small"
             title="删除标签"
-          >
-            <X className="w-4 h-4" />
-          </button>
+            style={{ minWidth: "auto", padding: "2px" }}
+          />
         </div>
       </div>
 
@@ -265,18 +270,20 @@ export function TagTree({
   return (
     <div className={className}>
       <div className="flex justify-end gap-2 mb-2 px-2">
-        <button
+        <Button
+          appearance="transparent"
           onClick={expandAll}
-          className="text-xs text-gray-500 hover:text-gray-700"
+          size="small"
         >
           展开全部
-        </button>
-        <button
+        </Button>
+        <Button
+          appearance="transparent"
           onClick={collapseAll}
-          className="text-xs text-gray-500 hover:text-gray-700"
+          size="small"
         >
           收起全部
-        </button>
+        </Button>
       </div>
       
       <div className="space-y-1">

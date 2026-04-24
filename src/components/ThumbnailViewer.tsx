@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { Button, Spinner } from "@fluentui/react-components";
 import {
   generateThumbnail,
   getThumbnailStatus,
@@ -83,7 +84,7 @@ export function ThumbnailViewer({
 
   const handleGenerateAll = async () => {
     try {
-      setGenerating("small" as ThumbnailSize); // 使用一个标记表示全部生成中
+      setGenerating("small" as ThumbnailSize);
       setError(null);
       await generateAllThumbnails(imageId);
       await loadStatus();
@@ -122,17 +123,15 @@ export function ThumbnailViewer({
           </div>
         )}
 
-        <button
+        <Button
+          className="mt-3"
+          size="small"
           onClick={() => handleGenerate(size)}
           disabled={isGenerating || generating !== null}
-          className={`mt-3 px-3 py-1 text-sm rounded ${
-            hasPath
-              ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              : "bg-primary-500 text-white hover:bg-primary-600"
-          } disabled:opacity-50 disabled:cursor-not-allowed`}
+          appearance={hasPath ? "secondary" : "primary"}
         >
           {isGenerating ? "生成中..." : hasPath ? "重新生成" : "生成"}
-        </button>
+        </Button>
       </div>
     );
   };
@@ -140,14 +139,8 @@ export function ThumbnailViewer({
   if (status.loading) {
     return (
       <div className={`p-4 ${className}`}>
-        <div className="animate-pulse flex space-x-4">
-          <div className="flex-1 space-y-4 py-1">
-            <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-            <div className="space-y-2">
-              <div className="h-4 bg-gray-200 rounded"></div>
-              <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-            </div>
-          </div>
+        <div className="flex items-center justify-center py-8">
+          <Spinner size="small" label="加载中..." />
         </div>
       </div>
     );
@@ -174,13 +167,13 @@ export function ThumbnailViewer({
       </div>
 
       <div className="mt-4 flex justify-center">
-        <button
+        <Button
+          appearance="primary"
           onClick={handleGenerateAll}
           disabled={generating !== null}
-          className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {generating ? "生成中..." : "生成所有尺寸"}
-        </button>
+        </Button>
       </div>
     </div>
   );

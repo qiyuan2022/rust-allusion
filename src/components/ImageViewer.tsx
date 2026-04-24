@@ -1,7 +1,13 @@
 import { useEffect, useCallback, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useGalleryStore } from "../stores/gallery";
-import { X, Info, ChevronLeft, ChevronRight } from "lucide-react";
+import { Button, Text, Divider } from "@fluentui/react-components";
+import {
+  DismissRegular,
+  InfoRegular,
+  ChevronLeftRegular,
+  ChevronRightRegular,
+} from "@fluentui/react-icons";
 
 export function ImageViewer() {
   const store = useGalleryStore();
@@ -58,27 +64,31 @@ export function ImageViewer() {
         {/* 顶部工具栏 */}
         <div className="absolute top-0 left-0 right-0 p-3 flex items-center justify-between bg-gradient-to-b from-black/70 to-transparent z-10">
           <div className="flex items-center gap-3">
-            <button
+            <Button
+              appearance="transparent"
+              icon={<DismissRegular className="w-5 h-5" />}
               onClick={() => store.closePreview()}
-              className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <span className="text-white/80 text-sm">
+              className="!text-white/80 hover:!text-white hover:!bg-white/10 !rounded-lg"
+              size="small"
+            />
+            <Text className="text-white/80 text-sm">
               {currentIndex + 1} / {store.images.length}
-            </span>
+            </Text>
           </div>
 
           <div className="flex items-center gap-1">
-            <button
+            <Button
+              appearance="transparent"
+              icon={<InfoRegular className="w-5 h-5" />}
               onClick={() => setShowInfo(!showInfo)}
-              className={`p-2 rounded-lg transition-colors ${
-                showInfo ? "bg-white/20 text-white" : "text-white/70 hover:text-white hover:bg-white/10"
+              className={`!rounded-lg ${
+                showInfo
+                  ? "!bg-white/20 !text-white"
+                  : "!text-white/70 hover:!text-white hover:!bg-white/10"
               }`}
               title="信息 (I)"
-            >
-              <Info className="w-5 h-5" />
-            </button>
+              size="small"
+            />
           </div>
         </div>
 
@@ -86,12 +96,12 @@ export function ImageViewer() {
         <div className="flex-1 flex items-center justify-center p-4">
           {/* 上一张按钮 */}
           {currentIndex > 0 && (
-            <button
+            <Button
+              appearance="transparent"
+              icon={<ChevronLeftRegular className="w-8 h-8" />}
               onClick={() => store.prevPreview()}
-              className="absolute left-4 p-3 text-white/40 hover:text-white hover:bg-white/10 rounded-full transition-all"
-            >
-              <ChevronLeft className="w-8 h-8" />
-            </button>
+              className="absolute left-4 !text-white/40 hover:!text-white hover:!bg-white/10 !rounded-full !p-3"
+            />
           )}
 
           {/* 图片 */}
@@ -103,12 +113,12 @@ export function ImageViewer() {
 
           {/* 下一张按钮 */}
           {currentIndex < store.images.length - 1 && (
-            <button
+            <Button
+              appearance="transparent"
+              icon={<ChevronRightRegular className="w-8 h-8" />}
               onClick={() => store.nextPreview()}
-              className="absolute right-4 p-3 text-white/40 hover:text-white hover:bg-white/10 rounded-full transition-all"
-            >
-              <ChevronRight className="w-8 h-8" />
-            </button>
+              className="absolute right-4 !text-white/40 hover:!text-white hover:!bg-white/10 !rounded-full !p-3"
+            />
           )}
         </div>
 
@@ -140,7 +150,7 @@ export function ImageViewer() {
       {showInfo && (
         <div className="w-72 bg-white border-l overflow-y-auto">
           <div className="p-4 border-b">
-            <h3 className="font-medium text-gray-800">文件信息</h3>
+            <Text weight="semibold" className="text-gray-800">文件信息</Text>
           </div>
           
           <div className="p-4 space-y-4 text-sm">
@@ -172,10 +182,10 @@ export function ImageViewer() {
             />
           </div>
 
-          {/* 标签区域 - 简化版 */}
+          {/* 标签区域 */}
           <div className="border-t p-4">
-            <h4 className="font-medium text-gray-800 mb-3">标签</h4>
-            <p className="text-sm text-gray-400">右键点击图片添加标签</p>
+            <Text weight="semibold" className="text-gray-800 mb-3 block">标签</Text>
+            <Text className="text-sm text-gray-400">右键点击图片添加标签</Text>
           </div>
         </div>
       )}
@@ -194,13 +204,13 @@ function InfoItem({
 }) {
   return (
     <div>
-      <span className="text-gray-500 block text-xs mb-1">{label}</span>
-      <span 
+      <Text className="text-gray-500 block text-xs mb-1">{label}</Text>
+      <Text
         className={`text-gray-800 ${truncate ? "truncate block" : ""}`}
         title={value}
       >
         {value}
-      </span>
+      </Text>
     </div>
   );
 }

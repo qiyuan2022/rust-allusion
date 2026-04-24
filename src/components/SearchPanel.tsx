@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { getSearchIndexStatus, rebuildSearchIndex } from "../api/search";
-import { Search, ChevronUp } from "lucide-react";
+import { SearchRegular, ChevronUpRegular } from "@fluentui/react-icons";
+import { Button, Text } from "@fluentui/react-components";
 
 interface SearchPanelProps {
   onSearchResults?: (results: any) => void;
@@ -53,13 +54,14 @@ export function SearchPanel({
   if (!isExpanded) {
     return (
       <div className={`p-2 ${className}`}>
-        <button
+        <Button
+          appearance="transparent"
+          icon={<SearchRegular fontSize={16} />}
           onClick={() => setIsExpanded(true)}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+          className="w-full justify-start"
         >
-          <Search className="w-4 h-4" />
-          <span>高级搜索...</span>
-        </button>
+          高级搜索...
+        </Button>
       </div>
     );
   }
@@ -67,13 +69,12 @@ export function SearchPanel({
   return (
     <div className={`p-4 border-b bg-gray-50 ${className}`}>
       <div className="flex items-center justify-between mb-3">
-        <h4 className="font-medium text-gray-700">搜索</h4>
-        <button
+        <Text weight="semibold">搜索</Text>
+        <Button
+          appearance="subtle"
+          icon={<ChevronUpRegular fontSize={16} />}
           onClick={() => setIsExpanded(false)}
-          className="text-gray-400 hover:text-gray-600"
-        >
-          <ChevronUp className="w-4 h-4" />
-        </button>
+        />
       </div>
 
       {/* 索引状态 */}
@@ -82,21 +83,22 @@ export function SearchPanel({
           <div className="flex items-center justify-between">
             <span>索引: {indexStatus.indexed}/{indexStatus.total}</span>
             {!indexStatus.isUpToDate && (
-              <button
+              <Button
+                appearance="transparent"
                 onClick={handleRebuildIndex}
-                className="text-primary-500 hover:text-primary-600"
+                size="small"
               >
                 重建
-              </button>
+              </Button>
             )}
           </div>
         </div>
       )}
 
       {/* 搜索功能提示 */}
-      <p className="text-xs text-gray-400">
+      <Text className="text-xs text-gray-400">
         使用顶部搜索框进行全文搜索
-      </p>
+      </Text>
     </div>
   );
 }

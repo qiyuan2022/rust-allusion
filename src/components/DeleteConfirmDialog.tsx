@@ -1,4 +1,14 @@
 import { useState } from "react";
+import {
+  Dialog,
+  DialogSurface,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Checkbox,
+  Text,
+} from "@fluentui/react-components";
 
 interface DeleteConfirmDialogProps {
   isOpen: boolean;
@@ -15,59 +25,55 @@ export function DeleteConfirmDialog({
 }: DeleteConfirmDialogProps) {
   const [deleteSourceFile, setDeleteSourceFile] = useState(false);
 
-  if (!isOpen) return null;
-
   return (
-    <div 
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div className="bg-white rounded-lg shadow-xl w-[400px]">
-        {/* 标题 */}
-        <div className="px-4 py-3 border-b">
-          <h3 className="text-lg font-medium text-gray-900">确认删除</h3>
-        </div>
+    <Dialog open={isOpen} onOpenChange={(_e, data) => data.open === false && onClose()}>
+      <DialogSurface>
+        <DialogTitle style={{ fontSize: "16px" }}>确认删除</DialogTitle>
+        <DialogContent>
+          <Text block style={{ marginBottom: "16px" }}>
+            确定要删除选中的 <strong>{imageCount}</strong> 张图片吗？
+          </Text>
 
-        {/* 内容 */}
-        <div className="p-4">
-          <p className="text-gray-600 mb-4">
-            确定要删除选中的 <span className="font-medium text-gray-900">{imageCount}</span> 张图片吗？
-          </p>
-
-          {/* 选项 */}
-          <label className="flex items-start gap-3 p-3 bg-red-50 rounded-lg cursor-pointer hover:bg-red-100 transition-colors">
-            <input
-              type="checkbox"
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "12px",
+              padding: "12px",
+              backgroundColor: "#fef2f2",
+              borderRadius: "8px",
+              cursor: "pointer",
+            }}
+            onClick={() => setDeleteSourceFile(!deleteSourceFile)}
+          >
+            <Checkbox
               checked={deleteSourceFile}
-              onChange={(e) => setDeleteSourceFile(e.target.checked)}
-              className="mt-0.5 w-4 h-4 text-red-600 rounded border-gray-300 focus:ring-red-500"
+              onChange={(_e, data) => setDeleteSourceFile(data.checked === true)}
             />
             <div>
-              <p className="text-sm font-medium text-red-700">同时删除源文件</p>
-              <p className="text-xs text-red-600 mt-1">
+              <Text weight="semibold" style={{ color: "#b91c1c", fontSize: "14px" }}>
+                同时删除源文件
+              </Text>
+              <Text style={{ color: "#dc2626", fontSize: "12px", display: "block", marginTop: "4px" }}>
                 勾选后将永久删除硬盘上的原始文件，此操作不可恢复
-              </p>
+              </Text>
             </div>
-          </label>
-        </div>
-
-        {/* 底部按钮 */}
-        <div className="px-4 py-3 border-t flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-          >
+          </div>
+        </DialogContent>
+        <DialogActions style={{ marginTop: "12px" }}>
+          <Button appearance="secondary" onClick={onClose}>
             取消
-          </button>
-          <button
+          </Button>
+          <Button
+            appearance="primary"
+            style={{ backgroundColor: "#dc2626" }}
             onClick={() => onConfirm(deleteSourceFile)}
-            className="px-4 py-2 text-sm bg-red-500 text-white hover:bg-red-600 rounded-lg transition-colors"
           >
             删除
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogActions>
+      </DialogSurface>
+    </Dialog>
   );
 }
 

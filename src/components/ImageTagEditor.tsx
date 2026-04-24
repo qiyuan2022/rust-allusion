@@ -1,4 +1,10 @@
+import { DismissRegular } from "@fluentui/react-icons";
 import { useState, useEffect, useCallback } from "react";
+import {
+  Button,
+  Input,
+  Text,
+} from "@fluentui/react-components";
 import {
   Tag,
   getAllTags,
@@ -113,7 +119,9 @@ export function ImageTagEditor({
     <div className={`p-4 ${className}`}>
       {/* 当前标签 */}
       <div className="mb-4">
-        <h4 className="text-sm font-medium text-gray-700 mb-2">已添加标签</h4>
+        <Text weight="semibold" block style={{ marginBottom: "8px" }}>
+          已添加标签
+        </Text>
         {imageTags.length === 0 ? (
           <p className="text-sm text-gray-400">暂无标签</p>
         ) : (
@@ -128,14 +136,13 @@ export function ImageTagEditor({
                 }}
               >
                 {tag.name}
-                <button
+                <Button
+                  appearance="transparent"
+                  icon={<DismissRegular fontSize={12} />}
                   onClick={() => handleRemoveTag(tag.id)}
-                  className="ml-1 hover:opacity-70"
-                >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                  size="small"
+                  style={{ minWidth: "auto", padding: "2px", color: tag.color }}
+                />
               </span>
             ))}
           </div>
@@ -144,14 +151,15 @@ export function ImageTagEditor({
 
       {/* 搜索和添加 */}
       <div className="mb-4">
-        <h4 className="text-sm font-medium text-gray-700 mb-2">添加标签</h4>
+        <Text weight="semibold" block style={{ marginBottom: "8px" }}>
+          添加标签
+        </Text>
         
-        <input
-          type="text"
+        <Input
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="搜索标签..."
-          className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 mb-2"
+          className="w-full mb-2"
         />
 
         {searchQuery && filteredTags.length > 0 && (
@@ -175,15 +183,16 @@ export function ImageTagEditor({
         {searchQuery && filteredTags.length === 0 && !isCreating && (
           <div className="text-sm text-gray-500 mb-2">
             未找到标签
-            <button
+            <Button
+              appearance="transparent"
               onClick={() => {
                 setNewTagName(searchQuery);
                 setIsCreating(true);
               }}
-              className="ml-2 text-primary-500 hover:text-primary-600"
+              size="small"
             >
               创建 "{searchQuery}"
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -191,15 +200,16 @@ export function ImageTagEditor({
       {/* 创建新标签 */}
       {isCreating && (
         <div className="border rounded-lg p-3 bg-gray-50">
-          <h4 className="text-sm font-medium text-gray-700 mb-2">创建新标签</h4>
+          <Text weight="semibold" block style={{ marginBottom: "8px" }}>
+            创建新标签
+          </Text>
           
-          <input
-            type="text"
+          <Input
             value={newTagName}
             onChange={(e) => setNewTagName(e.target.value)}
             placeholder="标签名称"
-            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 mb-2"
-            onKeyPress={(e) => e.key === "Enter" && handleCreateTag()}
+            className="w-full mb-2"
+            onKeyDown={(e) => e.key === "Enter" && handleCreateTag()}
           />
 
           <div className="flex flex-wrap gap-2 mb-3">
@@ -219,22 +229,24 @@ export function ImageTagEditor({
           </div>
 
           <div className="flex gap-2">
-            <button
+            <Button
+              appearance="primary"
               onClick={handleCreateTag}
               disabled={!newTagName.trim()}
-              className="px-3 py-1 bg-primary-500 text-white rounded text-sm hover:bg-primary-600 disabled:opacity-50"
+              size="small"
             >
               创建并添加
-            </button>
-            <button
+            </Button>
+            <Button
+              appearance="secondary"
               onClick={() => {
                 setIsCreating(false);
                 setNewTagName("");
               }}
-              className="px-3 py-1 text-gray-600 rounded text-sm hover:bg-gray-200"
+              size="small"
             >
               取消
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -242,23 +254,26 @@ export function ImageTagEditor({
       {/* 快速添加常用标签 */}
       {!searchQuery && allTags.length > 0 && (
         <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-2">快速添加</h4>
+          <Text weight="semibold" block style={{ marginBottom: "8px" }}>
+            快速添加
+          </Text>
           <div className="flex flex-wrap gap-2">
             {allTags
               .filter((tag) => !imageTags.some((it) => it.id === tag.id))
               .slice(0, 10)
               .map((tag) => (
-                <button
+                <Button
                   key={tag.id}
                   onClick={() => handleAddTag(tag.id)}
-                  className="px-2 py-1 text-sm border rounded hover:bg-gray-50"
+                  size="small"
+                  appearance="outline"
                   style={{
                     borderColor: tag.color,
                     color: tag.color,
                   }}
                 >
                   + {tag.name}
-                </button>
+                </Button>
               ))}
           </div>
         </div>

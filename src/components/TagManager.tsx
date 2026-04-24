@@ -10,6 +10,7 @@ import {
   getRandomTagColor,
 } from "../api/tags";
 import { TagTree } from "./TagTree";
+import { Button, Input, Dropdown, Option, Text } from "@fluentui/react-components";
 
 interface TagManagerProps {
   className?: string;
@@ -27,7 +28,7 @@ export function TagManager({
   const [isCreating, setIsCreating] = useState(false);
   const [newTagName, setNewTagName] = useState("");
   const [selectedColor, setSelectedColor] = useState(getRandomTagColor());
-  const [selectedParentId, setSelectedParentId] = useState<number | null>(null);
+  const [selectedParentId, setSelectedParentId] = useState<string>("");
   const [editingTag, setEditingTag] = useState<Tag | null>(null);
 
   const loadTagTree = useCallback(async () => {
@@ -52,13 +53,13 @@ export function TagManager({
     try {
       await createTag({
         name: newTagName.trim(),
-        parent_id: selectedParentId,
+        parent_id: selectedParentId ? parseInt(selectedParentId) : null,
         color: selectedColor,
       });
       
       setNewTagName("");
       setIsCreating(false);
-      setSelectedParentId(null);
+      setSelectedParentId("");
       setSelectedColor(getRandomTagColor());
       await loadTagTree();
     } catch (error) {
@@ -113,41 +114,36 @@ export function TagManager({
     <div className={`flex flex-col h-full ${className}`}>
       {/* 头部工具栏 */}
       <div className="flex items-center justify-between p-3 border-b">
-        <h3 className="font-medium">标签管理</h3>
-        <button
-          onClick={() => setIsCreating(true)}
-          className="px-3 py-1 bg-primary-500 text-white text-sm rounded hover:bg-primary-600"
-        >
+        <Text weight="semibold">标签管理</Text>
+        <Button appearance="primary" size="small" onClick={() => setIsCreating(true)}>
           + 新建标签
-        </button>
+        </Button>
       </div>
 
       {/* 创建标签表单 */}
       {isCreating && (
         <div className="p-3 border-b bg-gray-50">
-          <input
-            type="text"
+          <Input
             value={newTagName}
             onChange={(e) => setNewTagName(e.target.value)}
             placeholder="标签名称"
-            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 mb-2"
-            onKeyPress={(e) => e.key === "Enter" && handleCreateTag()}
+            className="w-full mb-2"
+            onKeyDown={(e) => e.key === "Enter" && handleCreateTag()}
           />
 
-          <select
-            value={selectedParentId ?? ""}
-            onChange={(e) =>
-              setSelectedParentId(e.target.value ? parseInt(e.target.value) : null)
-            }
-            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 mb-2"
+          <Dropdown
+            value={selectedParentId}
+            onOptionSelect={(_e, data) => setSelectedParentId(data.optionValue as string)}
+            className="w-full mb-2"
+            placeholder="选择父标签（可选）"
           >
-            <option value="">无父标签（顶级标签）</option>
+            <Option value="">无父标签（顶级标签）</Option>
             {allTags.map((tag) => (
-              <option key={tag.id} value={tag.id}>
+              <Option key={tag.id} value={String(tag.id)}>
                 {tag.name}
-              </option>
+              </Option>
             ))}
-          </select>
+          </Dropdown>
 
           <div className="flex flex-wrap gap-2 mb-3">
             {TAG_COLORS.map((color) => (
@@ -166,23 +162,25 @@ export function TagManager({
           </div>
 
           <div className="flex gap-2">
-            <button
+            <Button
+              appearance="primary"
               onClick={handleCreateTag}
               disabled={!newTagName.trim()}
-              className="px-3 py-1 bg-primary-500 text-white rounded text-sm hover:bg-primary-600 disabled:opacity-50"
+              size="small"
             >
               创建
-            </button>
-            <button
+            </Button>
+            <Button
+              appearance="secondary"
               onClick={() => {
                 setIsCreating(false);
                 setNewTagName("");
-                setSelectedParentId(null);
+                setSelectedParentId("");
               }}
-              className="px-3 py-1 text-gray-600 rounded text-sm hover:bg-gray-200"
+              size="small"
             >
               取消
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -190,16 +188,17 @@ export function TagManager({
       {/* 编辑标签表单 */}
       {editingTag && (
         <div className="p-3 border-b bg-primary-50">
-          <h4 className="text-sm font-medium mb-2">编辑标签</h4>
+          <Text weight="semibold" block style={{ marginBottom: "8px" }}>
+            编辑标签
+          </Text>
           
-          <input
-            type="text"
+          <Input
             value={editingTag.name}
             onChange={(e) =>
               setEditingTag({ ...editingTag, name: e.target.value })
             }
             placeholder="标签名称"
-            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 mb-2"
+            className="w-full mb-2"
           />
 
           <div className="flex flex-wrap gap-2 mb-3">
@@ -221,19 +220,21 @@ export function TagManager({
           </div>
 
           <div className="flex gap-2">
-            <button
+            <Button
+              appearance="primary"
               onClick={handleUpdateTag}
               disabled={!editingTag.name.trim()}
-              className="px-3 py-1 bg-primary-500 text-white rounded text-sm hover:bg-primary-600 disabled:opacity-50"
+              size="small"
             >
               保存
-            </button>
-            <button
+            </Button>
+            <Button
+              appearance="secondary"
               onClick={() => setEditingTag(null)}
-              className="px-3 py-1 text-gray-600 rounded text-sm hover:bg-gray-200"
+              size="small"
             >
               取消
-            </button>
+            </Button>
           </div>
         </div>
       )}

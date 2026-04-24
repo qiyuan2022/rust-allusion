@@ -2,22 +2,37 @@ import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useGalleryStore } from "../stores/gallery";
 import { Image, Tag } from "../api/tags";
-import { ContextMenu, MenuItem } from "./ContextMenu";
+import {
+  Menu,
+  MenuTrigger,
+  MenuPopover,
+  MenuList,
+  MenuItem,
+  MenuDivider,
+  tokens,
+  Spinner,
+  Text,
+} from "@fluentui/react-components";
 import { TagSelectDialog } from "./TagSelectDialog";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
+import { RenameDialog } from "./RenameDialog";
 import { LazyThumbnail } from "./LazyThumbnail";
-import { Images, Check } from "lucide-react";
+import {
+  ImageMultipleRegular,
+  CheckmarkRegular,
+  InfoRegular,
+  EditRegular,
+  TagMultipleRegular,
+  DeleteRegular,
+} from "@fluentui/react-icons";
+
+// 全局标志：用于阻止菜单关闭后的 click 穿透事件触发 clearSelection
+let menuJustClosed = false;
 
 interface GalleryProps {
   onLoadMore?: () => void;
   onRefresh?: () => void;
   availableTags?: Tag[];
-}
-
-// 右键菜单位置
-interface ContextMenuPos {
-  x: number;
-  y: number;
 }
 
 // 根据窗口宽度计算列数（与 Tailwind 断点一致）
@@ -31,7 +46,6 @@ function getColumnCount(): number {
 }
 
 // 计算行高（根据列数和容器宽度）
-// 包含上下间距，与左右间距保持一致（gap-2 = 8px）
 function getRowHeight(containerWidth: number, columns: number): number {
   const gap = 8;
   const padding = 16;
@@ -40,31 +54,138 @@ function getRowHeight(containerWidth: number, columns: number): number {
   return itemHeight + gap; // 加上下间距
 }
 
+// 单张图片的右键菜单组件
+function ImageContextMenu({
+  imageId,
+  onTag,
+  onDelete,
+  onRename,
+  children,
+  style,
+  className,
+}: {
+  imageId: number;
+  onTag: () => void;
+  onDelete: () => void;
+  onRename: () => void;
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+  className?: string;
+}) {
+  const store = useGalleryStore();
+  const [open, setOpen] = useState(false);
+  const [menuOffset, setMenuOffset] = useState({ mainAxis: 0, crossAxis: 0 });
+  const selectedCount = store.selectedIds.size;
+
+  const closeMenu = () => {
+    setOpen(false);
+    menuJustClosed = true;
+    setTimeout(() => {
+      menuJustClosed = false;
+    }, 100);
+  };
+
+  const handleDetail = () => {
+    closeMenu();
+    store.openDetail(imageId);
+  };
+
+  const handleRename = () => {
+    closeMenu();
+    setTimeout(() => {
+      if (selectedCount === 1) {
+        onRename();
+      }
+    }, 0);
+  };
+
+  const handleTag = () => {
+    closeMenu();
+    onTag();
+  };
+
+  const handleDelete = () => {
+    closeMenu();
+    onDelete();
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setMenuOffset({
+      mainAxis: e.clientY - rect.bottom,
+      crossAxis: e.clientX - rect.left,
+    });
+
+    if (!store.selectedIds.has(imageId)) {
+      store.selectImage(imageId, false);
+    }
+    setOpen(true);
+  };
+
+  return (
+    <Menu
+      open={open}
+      onOpenChange={(_e, data) => setOpen(data.open)}
+      positioning={{
+        position: "below",
+        align: "start",
+        offset: menuOffset,
+      }}
+    >
+      <MenuTrigger disableButtonEnhancement>
+        <div onContextMenu={handleContextMenu} style={style} className={className}>{children}</div>
+      </MenuTrigger>
+      <MenuPopover>
+        <MenuList>
+          <MenuItem icon={<InfoRegular fontSize={16} />} onClick={handleDetail}>
+            详情
+          </MenuItem>
+          <MenuItem
+            icon={<EditRegular fontSize={16} />}
+            onClick={handleRename}
+            disabled={selectedCount > 1}
+          >
+            重命名
+          </MenuItem>
+          <MenuDivider />
+          <MenuItem icon={<TagMultipleRegular fontSize={16} />} onClick={handleTag}>
+            打标签{selectedCount > 0 ? ` (${selectedCount}张)` : ""}
+          </MenuItem>
+          <MenuDivider />
+          <MenuItem
+            icon={<DeleteRegular fontSize={16} />}
+            onClick={handleDelete}
+            style={{ color: tokens.colorPaletteRedForeground1 }}
+          >
+            删除{selectedCount > 0 ? ` (${selectedCount}张)` : ""}
+          </MenuItem>
+        </MenuList>
+      </MenuPopover>
+    </Menu>
+  );
+}
+
 export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
   const store = useGalleryStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
-  // 右键菜单状态
-  const [contextMenu, setContextMenu] = useState<ContextMenuPos | null>(null);
-  const [contextImageId, setContextImageId] = useState<number | null>(null);
-
-  // 标签选择弹窗
   const [tagSelectorOpen, setTagSelectorOpen] = useState(false);
-
-  // 删除确认弹窗
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [renameImageId, setRenameImageId] = useState<number | null>(null);
+  const renameImage = renameImageId ? store.images.find((img) => img.id === renameImageId) : null;
 
-  // 计算列数和行高（使用窗口宽度）
   const columns = useMemo(() => getColumnCount(), []);
   const rowHeight = useMemo(() => getRowHeight(containerWidth, columns), [containerWidth, columns]);
 
-  // 计算总行数
   const rowCount = useMemo(() => {
     return Math.ceil(store.images.length / columns);
   }, [store.images.length, columns]);
 
-  // 【Grid 虚拟滚动】核心
   const gridVirtualizer = useVirtualizer({
     count: store.viewMode === "grid" ? rowCount : 0,
     getScrollElement: () => containerRef.current,
@@ -73,7 +194,6 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
     getItemKey: (index) => `grid-row-${index}`,
   });
 
-  // 【Justified 布局】预计算所有行信息（用于虚拟滚动）
   const justifiedRows = useMemo(() => {
     if (store.viewMode !== "justified" || containerWidth === 0) return [];
 
@@ -82,6 +202,7 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
       height: number;
       totalFlex: number;
       flexRatios: number[];
+      isLastRow: boolean;
     }[] = [];
 
     let currentRowImages: typeof store.images = [];
@@ -95,7 +216,6 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
       const imageWidth = targetRowHeight * aspectRatio;
 
       if (currentRowWidth + imageWidth + (currentRowImages.length > 0 ? spacing : 0) > maxContainerWidth && currentRowImages.length > 0) {
-        // 计算当前行高度
         const rowFlexRatios = currentRowImages.map(img => (img.width || 300) / (img.height || 200));
         const rowTotalFlex = rowFlexRatios.reduce((a, b) => a + b, 0);
         const rowTotalAspectRatio = currentRowImages.reduce((sum, img) => sum + ((img.width || 300) / (img.height || 200)), 0);
@@ -108,6 +228,7 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
           height: rowHeight,
           totalFlex: rowTotalFlex,
           flexRatios: rowFlexRatios,
+          isLastRow: false,
         });
 
         currentRowImages = [image];
@@ -118,50 +239,45 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
       }
     });
 
-    // 处理最后一行
     if (currentRowImages.length > 0) {
       const rowFlexRatios = currentRowImages.map(img => (img.width || 300) / (img.height || 200));
       const rowTotalFlex = rowFlexRatios.reduce((a, b) => a + b, 0);
-      const rowTotalAspectRatio = currentRowImages.reduce((sum, img) => sum + ((img.width || 300) / (img.height || 200)), 0);
-      const rowAvailableWidth = maxContainerWidth - (currentRowImages.length - 1) * spacing;
-      let rowHeight = rowAvailableWidth / rowTotalAspectRatio;
-      rowHeight = Math.min(rowHeight, targetRowHeight * 2.5);
+
+      // 最后一行固定使用 targetRowHeight，保持与前面行视觉统一，不按容器宽度拉伸
+      const rowHeight = targetRowHeight;
 
       rows.push({
         images: currentRowImages,
         height: rowHeight,
         totalFlex: rowTotalFlex,
         flexRatios: rowFlexRatios,
+        isLastRow: true,
       });
     }
 
     return rows;
   }, [store.images, store.viewMode, containerWidth]);
 
-  // 【Justified 虚拟滚动】核心
-  const ROW_GAP = 8; // 行间距 8px (gap-2)
+  const ROW_GAP = 8;
   
   const justifiedVirtualizer = useVirtualizer({
     count: store.viewMode === "justified" ? justifiedRows.length : 0,
     getScrollElement: () => containerRef.current,
-    estimateSize: (index) => (justifiedRows[index]?.height || 120) + ROW_GAP, // 加上下间距
+    estimateSize: (index) => (justifiedRows[index]?.height || 120) + ROW_GAP,
     overscan: 2,
     getItemKey: (index) => `justified-row-${index}`,
   });
 
-  // 根据当前视图模式选择虚拟滚动器
   const virtualizer = store.viewMode === "grid" ? gridVirtualizer : justifiedVirtualizer;
   const virtualItems = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
 
-  // 监听容器宽度和窗口大小变化
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const updateDimensions = () => {
       setContainerWidth(container.clientWidth);
-      // 列数基于窗口宽度，需要触发重新计算
       virtualizer.measure();
     };
 
@@ -180,14 +296,11 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
     };
   }, [virtualizer]);
 
-  // 虚拟滚动器尺寸变化时重新计算
   useEffect(() => {
     gridVirtualizer.measure();
   }, [rowHeight, gridVirtualizer]);
 
-  // 视图模式切换时重新计算
   useEffect(() => {
-    // 延迟执行，确保 DOM 已更新
     requestAnimationFrame(() => {
       if (store.viewMode === "grid") {
         gridVirtualizer.measure();
@@ -197,100 +310,13 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
     });
   }, [store.viewMode, gridVirtualizer, justifiedVirtualizer]);
 
-  // 处理图片点击
   const handleImageClick = useCallback((imageId: number, event?: React.MouseEvent) => {
     const isMulti = event ? (event.ctrlKey || event.metaKey || event.shiftKey) : false;
     store.selectImage(imageId, isMulti);
   }, [store]);
 
-  // 处理右键菜单
-  const handleContextMenu = useCallback((e: React.MouseEvent, imageId: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (!store.selectedIds.has(imageId)) {
-      store.selectImage(imageId, false);
-    }
-
-    setContextMenu({ x: e.clientX, y: e.clientY });
-    setContextImageId(imageId);
-  }, [store]);
-
-  // 获取当前选中的图片数量
   const selectedCount = store.selectedIds.size;
-  const hasSelection = selectedCount > 0;
 
-  // 生成右键菜单项
-  const getContextMenuItems = useCallback((): MenuItem[] => {
-    const singleImage = store.images.find(img => img.id === contextImageId);
-
-    return [
-      {
-        id: "detail",
-        label: "详情",
-        icon: (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        ),
-        onClick: () => {
-          if (contextImageId) {
-            store.openDetail(contextImageId);
-          }
-        },
-      },
-      {
-        id: "rename",
-        label: "重命名",
-        icon: (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-          </svg>
-        ),
-        disabled: selectedCount > 1,
-        onClick: () => {
-          setContextMenu(null);
-          setTimeout(() => {
-            if (contextImageId && selectedCount === 1) {
-              const newName = prompt("请输入新文件名:", singleImage?.file_name);
-              if (newName && newName !== singleImage?.file_name) {
-                store.renameImage(contextImageId, newName);
-              }
-            }
-          }, 0);
-        },
-      },
-      { id: "divider1", label: "", divider: true },
-      {
-        id: "tag",
-        label: `打标签${hasSelection ? ` (${selectedCount}张)` : ""}`,
-        icon: (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-          </svg>
-        ),
-        onClick: () => {
-          setTagSelectorOpen(true);
-        },
-      },
-      { id: "divider2", label: "", divider: true },
-      {
-        id: "delete",
-        label: `删除${hasSelection ? ` (${selectedCount}张)` : ""}`,
-        icon: (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-        ),
-        danger: true,
-        onClick: () => {
-          setDeleteDialogOpen(true);
-        },
-      },
-    ];
-  }, [contextImageId, hasSelection, selectedCount, store]);
-
-  // 处理标签选择确认
   const handleTagConfirm = async (tagIds: number[], newTagNames: string[]) => {
     const selectedIds = Array.from(store.selectedIds);
     if (selectedIds.length === 0) return;
@@ -301,7 +327,6 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
     setTagSelectorOpen(false);
   };
 
-  // 处理删除确认
   const handleDeleteConfirm = async (deleteSourceFile: boolean) => {
     const selectedIds = Array.from(store.selectedIds);
     if (selectedIds.length === 0) return;
@@ -310,7 +335,13 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
     setDeleteDialogOpen(false);
   };
 
-  // 渲染网格行
+  const handleRenameConfirm = async (newName: string) => {
+    if (!renameImageId) return;
+    await store.renameImage(renameImageId, newName);
+    setRenameDialogOpen(false);
+    setRenameImageId(null);
+  };
+
   const renderGridRow = (virtualRow: typeof virtualItems[0]) => {
     const rowIndex = virtualRow.index;
     const startIndex = rowIndex * columns;
@@ -335,58 +366,66 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
           const hasTags = image.tags && image.tags.length > 0;
 
           return (
-            <div
+            <ImageContextMenu
               key={image.id}
-              className={`
-                relative aspect-[4/3] overflow-hidden cursor-pointer
-                transition-all duration-150
-                shadow-md hover:shadow-xl
-                ${isSelected ? "ring-2 ring-primary-500 shadow-lg shadow-primary-200 dark:shadow-primary-900/30" : ""}
-              `}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleImageClick(image.id, e);
+              imageId={image.id}
+              onTag={() => setTagSelectorOpen(true)}
+              onDelete={() => setDeleteDialogOpen(true)}
+              onRename={() => {
+                setRenameImageId(image.id);
+                setRenameDialogOpen(true);
               }}
-              onDoubleClick={() => store.openDetail(image.id)}
-              onContextMenu={(e) => handleContextMenu(e, image.id)}
             >
-              <LazyThumbnail
-                imageId={image.id}
-                hash={image.hash}
-                imagePath={image.path}
-                fileName={image.file_name}
-                existingPath={image.thumbnail_path}
-                className="w-full h-full"
-              />
-              {isSelected && (
-                <div className="absolute top-2 right-2 w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center">
-                  <Check className="w-4 h-4 text-white" />
-                </div>
-              )}
-              {hasTags && (
-                <div className="absolute bottom-0 left-0 right-0 px-2 py-1 flex flex-wrap gap-1">
-                  {image.tags!.slice(0, 3).map((tag, idx) => (
-                    <span
-                      key={`${image.id}-${tag.id}-${idx}`}
-                      className="text-xs text-white bg-gray-900 px-1.5 py-0.5 rounded truncate"
-                      title={tag.name}
-                    >
-                      {tag.name}
-                    </span>
-                  ))}
-                  {image.tags!.length > 3 && (
-                    <span key={`${image.id}-more`} className="text-xs text-white bg-gray-900 px-1.5 py-0.5 rounded">+{image.tags!.length - 3}</span>
-                  )}
-                </div>
-              )}
-            </div>
+              <div
+                className={`
+                  relative aspect-[4/3] overflow-hidden cursor-pointer
+                  transition-all duration-150
+                  shadow-md hover:shadow-xl
+                  ${isSelected ? "ring-2 ring-primary-500 shadow-lg shadow-primary-200 dark:shadow-primary-900/30" : ""}
+                `}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleImageClick(image.id, e);
+                }}
+                onDoubleClick={() => store.openDetail(image.id)}
+              >
+                <LazyThumbnail
+                  imageId={image.id}
+                  hash={image.hash}
+                  imagePath={image.path}
+                  fileName={image.file_name}
+                  existingPath={image.thumbnail_path}
+                  className="w-full h-full"
+                />
+                {isSelected && (
+                  <div className="absolute top-2 right-2 w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center">
+                    <CheckmarkRegular className="w-4 h-4 text-white" />
+                  </div>
+                )}
+                {hasTags && (
+                  <div className="absolute bottom-0 left-0 right-0 px-2 py-1 flex flex-wrap gap-1">
+                    {image.tags!.slice(0, 3).map((tag, idx) => (
+                      <span
+                        key={`${image.id}-${tag.id}-${idx}`}
+                        className="text-xs text-white bg-gray-900 px-1.5 py-0.5 rounded truncate"
+                        title={tag.name}
+                      >
+                        {tag.name}
+                      </span>
+                    ))}
+                    {image.tags!.length > 3 && (
+                      <span key={`${image.id}-more`} className="text-xs text-white bg-gray-900 px-1.5 py-0.5 rounded">+{image.tags!.length - 3}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </ImageContextMenu>
           );
         })}
       </div>
     );
   };
 
-  // 渲染网格布局
   const renderGrid = () => {
     if (containerWidth === 0) {
       return (
@@ -405,13 +444,12 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
     );
   };
 
-  // 渲染水平瀑布流（带虚拟滚动）
   const renderJustifiedRow = (virtualRow: typeof virtualItems[0]) => {
     const rowIndex = virtualRow.index;
     const rowData = justifiedRows[rowIndex];
     if (!rowData) return null;
 
-    const { images, height, totalFlex, flexRatios } = rowData;
+    const { images, height, totalFlex, flexRatios, isLastRow } = rowData;
 
     return (
       <div
@@ -424,8 +462,8 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
           width: '100%',
           height: `${height}px`,
           transform: `translateY(${virtualRow.start}px)`,
-          paddingTop: '4px', // 上边距 4px (ROW_GAP/2)
-          paddingBottom: '4px', // 下边距 4px (ROW_GAP/2)
+          paddingTop: '4px',
+          paddingBottom: '4px',
         }}
         className="flex gap-2 px-4"
       >
@@ -434,64 +472,81 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
           const flexGrow = flexRatios[imgIndex] / totalFlex;
           const hasTags = image.tags && image.tags.length > 0;
 
+          const itemStyle = isLastRow
+            ? {
+                height: `${height}px`,
+                flex: `0 1 ${height * flexRatios[imgIndex]}px`,
+                minWidth: 0,
+              }
+            : {
+                height: `${height}px`,
+                flex: `${flexGrow} 1 0`,
+                minWidth: 0,
+              };
+
           return (
-            <div
+            <ImageContextMenu
               key={image.id}
+              imageId={image.id}
+              onTag={() => setTagSelectorOpen(true)}
+              onDelete={() => setDeleteDialogOpen(true)}
+              onRename={() => {
+                setRenameImageId(image.id);
+                setRenameDialogOpen(true);
+              }}
               className={`
                 relative overflow-hidden cursor-pointer
                 transition-all duration-150
                 shadow-md hover:shadow-xl
                 ${isSelected ? "ring-2 ring-primary-500 shadow-lg shadow-primary-200 dark:shadow-primary-900/30" : ""}
               `}
-              style={{
-                height: `${height}px`,
-                flex: `${flexGrow} 1 0`,
-                minWidth: 0
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleImageClick(image.id, e);
-              }}
-              onDoubleClick={() => store.openDetail(image.id)}
-              onContextMenu={(e) => handleContextMenu(e, image.id)}
+              style={itemStyle}
             >
-              <LazyThumbnail
-                imageId={image.id}
-                hash={image.hash}
-                imagePath={image.path}
-                fileName={image.file_name}
-                existingPath={image.thumbnail_path}
+              <div
                 className="w-full h-full"
-              />
-              {isSelected && (
-                <div className="absolute top-2 right-2 w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center">
-                  <Check className="w-4 h-4 text-white" />
-                </div>
-              )}
-              {hasTags && (
-                <div className="absolute bottom-0 left-0 right-0 px-1.5 py-0.5 flex flex-wrap gap-1">
-                  {image.tags!.slice(0, 2).map((tag, idx) => (
-                    <span
-                      key={`${image.id}-${tag.id}-${idx}`}
-                      className="text-[10px] text-white bg-gray-900 px-1 py-0.5 rounded truncate"
-                      title={tag.name}
-                    >
-                      {tag.name}
-                    </span>
-                  ))}
-                  {image.tags!.length > 2 && (
-                    <span key={`${image.id}-more`} className="text-[10px] text-white bg-gray-900 px-1 py-0.5 rounded">+{image.tags!.length - 2}</span>
-                  )}
-                </div>
-              )}
-            </div>
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleImageClick(image.id, e);
+                }}
+                onDoubleClick={() => store.openDetail(image.id)}
+              >
+                <LazyThumbnail
+                  imageId={image.id}
+                  hash={image.hash}
+                  imagePath={image.path}
+                  fileName={image.file_name}
+                  existingPath={image.thumbnail_path}
+                  className="w-full h-full"
+                />
+                {isSelected && (
+                  <div className="absolute top-2 right-2 w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center">
+                    <CheckmarkRegular className="w-4 h-4 text-white" />
+                  </div>
+                )}
+                {hasTags && (
+                  <div className="absolute bottom-0 left-0 right-0 px-1.5 py-0.5 flex flex-wrap gap-1">
+                    {image.tags!.slice(0, 2).map((tag, idx) => (
+                      <span
+                        key={`${image.id}-${tag.id}-${idx}`}
+                        className="text-[10px] text-white bg-gray-900 px-1 py-0.5 rounded truncate"
+                        title={tag.name}
+                      >
+                        {tag.name}
+                      </span>
+                    ))}
+                    {image.tags!.length > 2 && (
+                      <span key={`${image.id}-more`} className="text-[10px] text-white bg-gray-900 px-1 py-0.5 rounded">+{image.tags!.length - 2}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </ImageContextMenu>
           );
         })}
       </div>
     );
   };
 
-  // 渲染水平瀑布流（带虚拟滚动）
   const renderJustified = () => {
     if (containerWidth === 0 || justifiedRows.length === 0) {
       return (
@@ -518,14 +573,30 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
     <div
       ref={containerRef}
       className="flex-1 overflow-y-auto overflow-x-hidden h-full"
-      onClick={() => store.clearSelection()}
+      onClick={(e) => {
+        if (menuJustClosed) {
+          menuJustClosed = false;
+          return;
+        }
+        // React 17+ portal 内部的事件会冒泡到 React 树祖先
+        // 阻止 Dialog/Menu 等 portal 内的点击触发 clearSelection
+        const target = e.target as HTMLElement;
+        if (target.closest('[role="dialog"]') || target.closest('[role="menu"]')) {
+          return;
+        }
+        store.clearSelection();
+      }}
     >
       {store.images.length === 0 ? (
-        <div className="h-full flex items-center justify-center text-gray-400 dark:text-gray-500">
+        <div className="h-full flex items-center justify-center">
           <div className="text-center">
-            <Images className="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" strokeWidth={1.5} />
-            <p className="text-lg font-medium text-gray-500 dark:text-gray-300">暂无图片</p>
-            <p className="text-sm mt-1 dark:text-gray-400">拖入文件夹或点击导入开始</p>
+            <ImageMultipleRegular className="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
+            <Text size={500} weight="semibold" className="text-gray-500 dark:text-gray-300 block">
+              暂无图片
+            </Text>
+            <Text size={300} className="mt-1 dark:text-gray-400 block">
+              拖入文件夹或点击导入开始
+            </Text>
           </div>
         </div>
       ) : (
@@ -536,39 +607,27 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
           {/* 底部状态栏 */}
           <div className="flex items-center justify-center p-8">
             {store.isLoading && store.allImages.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 text-gray-400 dark:text-gray-500">
-                <div className="w-5 h-5 border-2 border-gray-200 dark:border-gray-700 border-t-gray-400 dark:border-t-gray-500 rounded-full animate-spin" />
-                <span>正在加载图片...</span>
+              <div className="flex flex-col items-center gap-2">
+                <Spinner size="tiny" />
+                <Text className="text-gray-400 dark:text-gray-500">正在加载图片...</Text>
               </div>
             ) : store.isLoading ? (
-              <div className="flex flex-col items-center gap-2 text-gray-400 dark:text-gray-500">
-                <div className="w-5 h-5 border-2 border-gray-200 dark:border-gray-700 border-t-gray-400 dark:border-t-gray-500 rounded-full animate-spin" />
-                <span>正在处理...</span>
+              <div className="flex flex-col items-center gap-2">
+                <Spinner size="tiny" />
+                <Text className="text-gray-400 dark:text-gray-500">正在处理...</Text>
               </div>
             ) : store.isSearching ? (
-              <span className="text-gray-400 dark:text-gray-500">
+              <Text className="text-gray-400 dark:text-gray-500">
                 搜索结果: {store.images.length} 张图片
                 {store.searchQuery && ` (关键词: "${store.searchQuery}")`}
-              </span>
+              </Text>
             ) : (
-              <span className="text-gray-400 dark:text-gray-500">
+              <Text className="text-gray-400 dark:text-gray-500">
                 共 {store.allImages.length} 张图片
-              </span>
+              </Text>
             )}
           </div>
         </>
-      )}
-
-      {/* 右键菜单 */}
-      {contextMenu && (
-        <div onClick={(e) => e.stopPropagation()}>
-          <ContextMenu
-            x={contextMenu.x}
-            y={contextMenu.y}
-            items={getContextMenuItems()}
-            onClose={() => setContextMenu(null)}
-          />
-        </div>
       )}
 
       {/* 标签选择弹窗 */}
@@ -587,6 +646,17 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
         onClose={() => setDeleteDialogOpen(false)}
         onConfirm={handleDeleteConfirm}
         imageCount={store.selectedIds.size}
+      />
+
+      {/* 重命名弹窗 */}
+      <RenameDialog
+        isOpen={renameDialogOpen}
+        onClose={() => {
+          setRenameDialogOpen(false);
+          setRenameImageId(null);
+        }}
+        onConfirm={handleRenameConfirm}
+        currentName={renameImage?.file_name || ""}
       />
     </div>
   );
