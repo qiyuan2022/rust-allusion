@@ -148,7 +148,7 @@ export function LazyThumbnail({
     <img
       src={url}
       alt={fileName}
-      title={fileName}
+      data-tooltip={fileName}
       className={`object-cover ${imgClassName} ${className}`}
       loading="lazy"
     />

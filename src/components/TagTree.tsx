@@ -1,7 +1,8 @@
 import { useState, useCallback } from "react";
 import { TagTreeNode, Tag, moveTag, deleteTag } from "../api/tags";
 import { ChevronRightRegular, DismissRegular } from "@fluentui/react-icons";
-import { Button } from "@fluentui/react-components";
+import { Button, Tooltip } from "@fluentui/react-components";
+import { TagBadge } from "./TagBadge";
 
 interface TagTreeProps {
   nodes: TagTreeNode[];
@@ -115,13 +116,13 @@ function TagTreeItem({
     <div>
       <div
         className={`
-          flex items-center justify-between py-2 px-3 rounded-lg cursor-pointer
+          flex items-center justify-between py-0.5 px-2 rounded cursor-pointer
           transition-colors duration-150
           ${isSelected ? "bg-primary-100 dark:bg-primary-900/30" : "hover:bg-gray-100 dark:hover:bg-gray-800"}
           ${isDropTarget ? "bg-primary-50 dark:bg-primary-900/20 border-2 border-primary-300 dark:border-primary-600" : ""}
           ${isDragging ? "opacity-50" : ""}
         `}
-        style={{ paddingLeft: `${level * 16 + 12}px` }}
+        style={{ paddingLeft: `${level * 12 + 8}px` }}
         onClick={(e) => onSelectTag?.(node, e.ctrlKey || e.metaKey)}
         draggable={draggable}
         onDragStart={handleDragStart}
@@ -152,27 +153,25 @@ function TagTreeItem({
             <span className="w-5" />
           )}
           
-          <span
-            className="w-3 h-3 rounded-full flex-shrink-0"
-            style={{ backgroundColor: node.color }}
-          />
+          <TagBadge tooltip={`${node.name} (${node.image_count})`}>
+            {node.name}
+          </TagBadge>
           
-          <span className="font-medium truncate dark:text-gray-200">{node.name}</span>
-          
-          <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
-            ({node.image_count})
+          <span className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0 tabular-nums">
+            {node.image_count}
           </span>
         </div>
 
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <Button
-            appearance="subtle"
-            icon={<DismissRegular fontSize={16} />}
-            onClick={handleDelete}
-            size="small"
-            title="删除标签"
-            style={{ minWidth: "auto", padding: "2px" }}
-          />
+          <Tooltip content="删除标签" relationship="label">
+            <Button
+              appearance="subtle"
+              icon={<DismissRegular fontSize={16} />}
+              onClick={handleDelete}
+              size="small"
+              style={{ minWidth: "auto", padding: "1px" }}
+            />
+          </Tooltip>
         </div>
       </div>
 
@@ -217,14 +216,15 @@ export function TagTree({
     dropTargetId: number | null;
   }>({ draggedId: null, dropTargetId: null });
 
-  // 过滤标签树，只保留有文件关联的标签
+  // 过滤标签树，只保留有文件关联的标签，并按图片数量倒排
   const filterTagTree = useCallback((nodes: TagTreeNode[]): TagTreeNode[] => {
     return nodes
       .map((node) => ({
         ...node,
         children: filterTagTree(node.children),
       }))
-      .filter((node) => node.image_count > 0 || node.children.length > 0);
+      .filter((node) => node.image_count > 0 || node.children.length > 0)
+      .sort((a, b) => b.image_count - a.image_count);
   }, []);
 
   const filteredNodes = filterTagTree(nodes);

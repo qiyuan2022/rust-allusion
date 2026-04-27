@@ -1,7 +1,7 @@
 import { useEffect, useCallback, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useGalleryStore } from "../stores/gallery";
-import { Button, Text, Divider } from "@fluentui/react-components";
+import { Button, Text, Divider, Tooltip } from "@fluentui/react-components";
 import {
   DismissRegular,
   InfoRegular,
@@ -77,18 +77,19 @@ export function ImageViewer() {
           </div>
 
           <div className="flex items-center gap-1">
-            <Button
-              appearance="transparent"
-              icon={<InfoRegular className="w-5 h-5" />}
-              onClick={() => setShowInfo(!showInfo)}
-              className={`!rounded-lg ${
-                showInfo
-                  ? "!bg-white/20 !text-white"
-                  : "!text-white/70 hover:!text-white hover:!bg-white/10"
-              }`}
-              title="信息 (I)"
-              size="small"
-            />
+            <Tooltip content="信息 (I)" relationship="label">
+              <Button
+                appearance="transparent"
+                icon={<InfoRegular className="w-5 h-5" />}
+                onClick={() => setShowInfo(!showInfo)}
+                className={`!rounded-lg ${
+                  showInfo
+                    ? "!bg-white/20 !text-white"
+                    : "!text-white/70 hover:!text-white hover:!bg-white/10"
+                }`}
+                size="small"
+              />
+            </Tooltip>
           </div>
         </div>
 
@@ -207,7 +208,6 @@ function InfoItem({
       <Text className="text-gray-500 block text-xs mb-1">{label}</Text>
       <Text
         className={`text-gray-800 ${truncate ? "truncate block" : ""}`}
-        title={value}
       >
         {value}
       </Text>

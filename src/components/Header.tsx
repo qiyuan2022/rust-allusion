@@ -21,6 +21,7 @@ import {
   MenuPopover,
   MenuList,
   MenuItem,
+  Tooltip,
 } from "@fluentui/react-components";
 
 interface HeaderProps {
@@ -94,13 +95,13 @@ export function Header({
           onChange={(_e, data) => handleInputChange(data.value)}
           onKeyDown={handleKeyDown}
           placeholder="搜索图片..."
-          contentBefore={<SearchRegular className="w-4 h-4 text-gray-400 dark:text-gray-500" />}
+          contentBefore={<SearchRegular fontSize={20} className="text-gray-400 dark:text-gray-500" />}
           contentAfter={inputValue ? (
             <Button
               appearance="transparent"
-              icon={<DismissRegular className="w-4 h-4" />}
+              icon={<DismissRegular fontSize={20} />}
               onClick={handleClearSearch}
-              size="small"
+              size="medium"
             />
           ) : undefined}
           className="w-full"
@@ -112,7 +113,7 @@ export function Header({
         {/* 选择计数 */}
         {selectedCount > 0 ? (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded-lg text-sm">
-            <ImageMultipleRegular className="w-4 h-4" />
+            <ImageMultipleRegular fontSize={20} />
             <span className="font-medium">{selectedCount}</span>
             <span className="text-primary-500 dark:text-primary-400">/</span>
             <span>{displayTotalCount}</span>
@@ -127,18 +128,18 @@ export function Header({
         <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
           <Button
             appearance={viewMode === "justified" ? "primary" : "subtle"}
-            icon={<TextAlignJustifyRegular className="w-4 h-4" />}
+            icon={<TextAlignJustifyRegular fontSize={20} />}
             onClick={() => onViewModeChange("justified")}
-            size="small"
+            size="medium"
             className={viewMode === "justified" ? "shadow-sm" : ""}
           >
             水平
           </Button>
           <Button
             appearance={viewMode === "grid" ? "primary" : "subtle"}
-            icon={<GridRegular className="w-4 h-4" />}
+            icon={<GridRegular fontSize={20} />}
             onClick={() => onViewModeChange("grid")}
-            size="small"
+            size="medium"
             className={viewMode === "grid" ? "shadow-sm" : ""}
           >
             网格
@@ -150,8 +151,8 @@ export function Header({
           <MenuTrigger disableButtonEnhancement>
             <Button
               appearance="subtle"
-              icon={<ArrowSortRegular className="w-4 h-4" />}
-              size="small"
+              icon={<ArrowSortRegular fontSize={20} />}
+              size="medium"
             >
               排序
             </Button>
@@ -182,9 +183,9 @@ export function Header({
                       <span>{option.label}</span>
                       {isSelected && (
                         store.sortOrder === "asc" ? (
-                          <ChevronUpRegular className="w-4 h-4 flex-shrink-0" />
+                          <ChevronUpRegular fontSize={20} className="flex-shrink-0" />
                         ) : (
-                          <ChevronDownRegular className="w-4 h-4 flex-shrink-0" />
+                          <ChevronDownRegular fontSize={20} className="flex-shrink-0" />
                         )
                       )}
                     </div>
@@ -196,22 +197,24 @@ export function Header({
         </Menu>
 
         {/* 刷新 */}
-        <Button
-          appearance="subtle"
-          icon={<ArrowCounterclockwiseRegular className="w-4 h-4" />}
-          onClick={onRefresh}
-          title="刷新"
-          size="small"
-        />
+        <Tooltip content="刷新" relationship="label">
+          <Button
+            appearance="subtle"
+            icon={<ArrowCounterclockwiseRegular fontSize={20} />}
+            onClick={onRefresh}
+            size="medium"
+          />
+        </Tooltip>
 
         {/* 设置 */}
-        <Button
-          appearance="subtle"
-          icon={<SettingsRegular className="w-4 h-4" />}
-          onClick={() => setIsSettingsOpen(true)}
-          title="设置"
-          size="small"
-        />
+        <Tooltip content="设置" relationship="label">
+          <Button
+            appearance="subtle"
+            icon={<SettingsRegular fontSize={20} />}
+            onClick={() => setIsSettingsOpen(true)}
+            size="medium"
+          />
+        </Tooltip>
       </div>
 
       {/* 设置弹窗 */}

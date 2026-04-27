@@ -3,10 +3,9 @@ import { Tag as TagType } from "../api/tags";
 import { AddRegular } from "@fluentui/react-icons";
 import {
   Input,
-  Tag,
-  TagGroup,
   tokens,
 } from "@fluentui/react-components";
+import { TagBadge } from "./TagBadge";
 
 interface TagInputProps {
   availableTags: TagType[];
@@ -24,6 +23,7 @@ export function TagInput({
   const [inputValue, setInputValue] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [pendingNewTags, setPendingNewTags] = useState<{ name: string; color: string }[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -40,6 +40,9 @@ export function TagInput({
     inputValue.trim() &&
     !availableTags.some(
       (tag) => tag.name.toLowerCase() === inputValue.trim().toLowerCase()
+    ) &&
+    !pendingNewTags.some(
+      (tag) => tag.name.toLowerCase() === inputValue.trim().toLowerCase()
     );
 
   const addTag = (tagName: string) => {
@@ -55,7 +58,15 @@ export function TagInput({
         onChange([...selectedTagIds, existingTag.id], []);
       }
     } else {
-      onChange([...selectedTagIds], [trimmedName]);
+      // 检查是否已经在 pendingNewTags 中
+      const alreadyPending = pendingNewTags.some(
+        (tag) => tag.name.toLowerCase() === trimmedName.toLowerCase()
+      );
+      if (!alreadyPending) {
+        const newPendingTag = { name: trimmedName, color: "#3b82f6" };
+        setPendingNewTags((prev) => [...prev, newPendingTag]);
+        onChange([...selectedTagIds], [...pendingNewTags.map((t) => t.name), trimmedName]);
+      }
     }
 
     setInputValue("");
@@ -66,8 +77,14 @@ export function TagInput({
   const removeTag = (tagId: number) => {
     onChange(
       selectedTagIds.filter((id) => id !== tagId),
-      []
+      pendingNewTags.map((t) => t.name)
     );
+  };
+
+  const removePendingTag = (tagName: string) => {
+    const updatedPending = pendingNewTags.filter((t) => t.name !== tagName);
+    setPendingNewTags(updatedPending);
+    onChange(selectedTagIds, updatedPending.map((t) => t.name));
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -94,6 +111,8 @@ export function TagInput({
       inputRef.current?.blur();
     } else if (e.key === "Backspace" && !inputValue && selectedTagIds.length > 0) {
       removeTag(selectedTagIds[selectedTagIds.length - 1]);
+    } else if (e.key === "Backspace" && !inputValue && pendingNewTags.length > 0) {
+      removePendingTag(pendingNewTags[pendingNewTags.length - 1].name);
     }
   };
 
@@ -112,32 +131,46 @@ export function TagInput({
     setHighlightedIndex(0);
   }, [inputValue]);
 
+  // 当 availableTags 变化时，清理已经被创建成功的 pending tags
+  useEffect(() => {
+    setPendingNewTags((prev) =>
+      prev.filter(
+        (pending) =>
+          !availableTags.some(
+            (tag) => tag.name.toLowerCase() === pending.name.toLowerCase()
+          )
+      )
+    );
+  }, [availableTags]);
+
   return (
     <div ref={containerRef} className="relative">
       {/* 标签+输入容器 */}
       <div
-        className="min-h-[42px] p-2 flex flex-wrap gap-2 rounded"
+        className="min-h-[34px] px-2 py-1 flex flex-wrap gap-1.5 rounded"
         style={{
           border: `1px solid ${tokens.colorNeutralStroke1}`,
           backgroundColor: tokens.colorNeutralBackground1,
         }}
       >
-        <TagGroup onDismiss={(_, data) => removeTag(Number(data.value))}>
-          {selectedTags.map((tag) => (
-            <Tag
-              key={tag.id}
-              dismissible
-              value={String(tag.id)}
-              size="small"
-              style={{
-                backgroundColor: `${tag.color}20`,
-                color: tag.color,
-              }}
-            >
-              {tag.name}
-            </Tag>
-          ))}
-        </TagGroup>
+        {selectedTags.map((tag) => (
+          <TagBadge
+            key={tag.id}
+            dismissible
+            onDismiss={() => removeTag(tag.id)}
+          >
+            {tag.name}
+          </TagBadge>
+        ))}
+        {pendingNewTags.map((tag) => (
+          <TagBadge
+            key={`pending-${tag.name}`}
+            dismissible
+            onDismiss={() => removePendingTag(tag.name)}
+          >
+            {tag.name}
+          </TagBadge>
+        ))}
 
         <Input
           ref={inputRef}
@@ -148,7 +181,7 @@ export function TagInput({
           }}
           onClick={() => setIsOpen(true)}
           onKeyDown={handleKeyDown}
-          placeholder={selectedTags.length === 0 ? placeholder : ""}
+          placeholder={selectedTags.length === 0 && pendingNewTags.length === 0 ? placeholder : ""}
           appearance="filled-lighter"
           style={{
             flex: 1,

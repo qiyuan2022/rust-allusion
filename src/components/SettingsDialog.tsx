@@ -245,9 +245,17 @@ function GeneralSettings() {
         </div>
 
         <div className={styles.settingItem}>
-          <div className={styles.settingLabel}>
+          <div className={styles.settingLabel} style={{ minWidth: 0, flex: 1 }}>
             <Body1>缩略图存储位置</Body1>
-            <Caption1 style={{ color: tokens.colorNeutralForeground3, wordBreak: "break-all" }}>
+            <Caption1
+              style={{
+                color: tokens.colorNeutralForeground3,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                maxWidth: "360px",
+              }}
+            >
               {thumbDir || "加载中..."}
             </Caption1>
           </div>
@@ -256,6 +264,7 @@ function GeneralSettings() {
             icon={<FolderOpenRegular fontSize={16} />}
             onClick={handleSelectDir}
             disabled={isMoving}
+            style={{ flexShrink: 0 }}
           >
             {isMoving ? "迁移中..." : "更改目录"}
           </Button>

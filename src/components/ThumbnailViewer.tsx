@@ -149,7 +149,7 @@ export function ThumbnailViewer({
   return (
     <div className={`p-4 ${className}`}>
       {imagePath && (
-        <div className="mb-4 text-sm text-gray-600 truncate" title={imagePath}>
+        <div className="mb-4 text-sm text-gray-600 truncate">
           原图: {imagePath}
         </div>
       )}

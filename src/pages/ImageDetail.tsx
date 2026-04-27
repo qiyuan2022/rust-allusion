@@ -352,13 +352,14 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
                 <div className="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 rounded text-sm text-gray-600 dark:text-gray-300 truncate">
                   {image.path}
                 </div>
-                <Button
-                  appearance="secondary"
-                  icon={<CopyRegular className="w-4 h-4" />}
-                  onClick={() => navigator.clipboard.writeText(image.path)}
-                  title="复制路径"
-                  size="small"
-                />
+                <Tooltip content="复制路径" relationship="label">
+                  <Button
+                    appearance="secondary"
+                    icon={<CopyRegular fontSize={24} />}
+                    onClick={() => navigator.clipboard.writeText(image.path)}
+                    size="medium"
+                  />
+                </Tooltip>
               </div>
             </div>
 
@@ -401,11 +402,13 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
                   appearance="secondary"
                   icon={
                     <ArrowCounterclockwiseRegular
-                      className={`w-4 h-4 ${regenerating ? "animate-spin" : ""}`}
+                      fontSize={24}
+                      className={regenerating ? "animate-spin" : ""}
                     />
                   }
                   onClick={handleRegenerateThumbnails}
                   disabled={regenerating}
+                  size="medium"
                   className="w-full"
                 >
                   {regenerating ? "生成中..." : "重新生成缩略图"}
@@ -460,7 +463,6 @@ function InfoRow({
       <Text className="text-gray-500 dark:text-gray-400">{label}</Text>
       <Text
         className={`text-gray-900 dark:text-gray-100 text-right max-w-[180px] ${truncate ? "truncate" : ""} ${valueClassName || ""}`}
-        title={value}
       >
         {value}
       </Text>

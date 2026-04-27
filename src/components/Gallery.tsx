@@ -17,6 +17,7 @@ import { TagSelectDialog } from "./TagSelectDialog";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { RenameDialog } from "./RenameDialog";
 import { LazyThumbnail } from "./LazyThumbnail";
+import { TagBadge } from "./TagBadge";
 import {
   ImageMultipleRegular,
   CheckmarkRegular,
@@ -32,6 +33,7 @@ let menuJustClosed = false;
 interface GalleryProps {
   onLoadMore?: () => void;
   onRefresh?: () => void;
+  onSidebarRefresh?: () => void;
   availableTags?: Tag[];
 }
 
@@ -168,7 +170,7 @@ function ImageContextMenu({
   );
 }
 
-export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
+export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: GalleryProps) {
   const store = useGalleryStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -321,9 +323,8 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
     const selectedIds = Array.from(store.selectedIds);
     if (selectedIds.length === 0) return;
 
-    await store.addTagsToImages(selectedIds, tagIds, newTagNames, () => {
-      onRefresh?.();
-    });
+    await store.addTagsToImages(selectedIds, tagIds, newTagNames);
+    onSidebarRefresh?.();
     setTagSelectorOpen(false);
   };
 
@@ -332,6 +333,7 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
     if (selectedIds.length === 0) return;
 
     await store.deleteImages(selectedIds, deleteSourceFile);
+    onSidebarRefresh?.();
     setDeleteDialogOpen(false);
   };
 
@@ -359,7 +361,7 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
           height: `${virtualRow.size}px`,
           transform: `translateY(${virtualRow.start}px)`,
         }}
-        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 px-4"
+        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 px-4 pt-4"
       >
         {rowImages.map((image) => {
           const isSelected = store.selectedIds.has(image.id);
@@ -381,7 +383,7 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
                   relative aspect-[4/3] overflow-hidden cursor-pointer
                   transition-all duration-150
                   shadow-md hover:shadow-xl
-                  ${isSelected ? "ring-2 ring-primary-500 shadow-lg shadow-primary-200 dark:shadow-primary-900/30" : ""}
+                  ${isSelected ? "ring-2 ring-[#0f6cbd] shadow-lg shadow-[#0f6cbd]/20 dark:shadow-[#0f6cbd]/30" : ""}
                 `}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -398,23 +400,21 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
                   className="w-full h-full"
                 />
                 {isSelected && (
-                  <div className="absolute top-2 right-2 w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center">
+                  <div className="absolute top-2 right-2 w-6 h-6 bg-[#0f6cbd] rounded flex items-center justify-center">
                     <CheckmarkRegular className="w-4 h-4 text-white" />
                   </div>
                 )}
                 {hasTags && (
                   <div className="absolute bottom-0 left-0 right-0 px-2 py-1 flex flex-wrap gap-1">
                     {image.tags!.slice(0, 3).map((tag, idx) => (
-                      <span
-                        key={`${image.id}-${tag.id}-${idx}`}
-                        className="text-xs text-white bg-gray-900 px-1.5 py-0.5 rounded truncate"
-                        title={tag.name}
-                      >
+                      <TagBadge key={`${image.id}-${tag.id}-${idx}`} tooltip={tag.name}>
                         {tag.name}
-                      </span>
+                      </TagBadge>
                     ))}
                     {image.tags!.length > 3 && (
-                      <span key={`${image.id}-more`} className="text-xs text-white bg-gray-900 px-1.5 py-0.5 rounded">+{image.tags!.length - 3}</span>
+                      <TagBadge key={`${image.id}-more`}>
+                        +{image.tags!.length - 3}
+                      </TagBadge>
                     )}
                   </div>
                 )}
@@ -429,7 +429,7 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
   const renderGrid = () => {
     if (containerWidth === 0) {
       return (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 px-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 px-4 pt-4">
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="aspect-[4/3] bg-gray-100 dark:bg-gray-800 rounded animate-pulse" />
           ))}
@@ -462,7 +462,7 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
           width: '100%',
           height: `${height}px`,
           transform: `translateY(${virtualRow.start}px)`,
-          paddingTop: '4px',
+          paddingTop: '16px',
           paddingBottom: '4px',
         }}
         className="flex gap-2 px-4"
@@ -498,7 +498,7 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
                 relative overflow-hidden cursor-pointer
                 transition-all duration-150
                 shadow-md hover:shadow-xl
-                ${isSelected ? "ring-2 ring-primary-500 shadow-lg shadow-primary-200 dark:shadow-primary-900/30" : ""}
+                ${isSelected ? "ring-2 ring-[#0f6cbd] shadow-lg shadow-[#0f6cbd]/20 dark:shadow-[#0f6cbd]/30" : ""}
               `}
               style={itemStyle}
             >
@@ -519,23 +519,21 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
                   className="w-full h-full"
                 />
                 {isSelected && (
-                  <div className="absolute top-2 right-2 w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center">
+                  <div className="absolute top-2 right-2 w-6 h-6 bg-[#0f6cbd] rounded flex items-center justify-center">
                     <CheckmarkRegular className="w-4 h-4 text-white" />
                   </div>
                 )}
                 {hasTags && (
                   <div className="absolute bottom-0 left-0 right-0 px-1.5 py-0.5 flex flex-wrap gap-1">
                     {image.tags!.slice(0, 2).map((tag, idx) => (
-                      <span
-                        key={`${image.id}-${tag.id}-${idx}`}
-                        className="text-[10px] text-white bg-gray-900 px-1 py-0.5 rounded truncate"
-                        title={tag.name}
-                      >
+                      <TagBadge key={`${image.id}-${tag.id}-${idx}`} tooltip={tag.name}>
                         {tag.name}
-                      </span>
+                      </TagBadge>
                     ))}
                     {image.tags!.length > 2 && (
-                      <span key={`${image.id}-more`} className="text-[10px] text-white bg-gray-900 px-1 py-0.5 rounded">+{image.tags!.length - 2}</span>
+                      <TagBadge key={`${image.id}-more`}>
+                        +{image.tags!.length - 2}
+                      </TagBadge>
                     )}
                   </div>
                 )}
@@ -550,7 +548,7 @@ export function Gallery({ onRefresh, availableTags = [] }: GalleryProps) {
   const renderJustified = () => {
     if (containerWidth === 0 || justifiedRows.length === 0) {
       return (
-        <div className="flex flex-col gap-2 px-4">
+        <div className="flex flex-col gap-2 px-4 pt-4">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="flex gap-2">
               {Array.from({ length: 4 }).map((_, j) => (

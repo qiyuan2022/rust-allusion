@@ -347,6 +347,7 @@ function MainApp() {
       <Gallery
         onLoadMore={loadMoreImages}
         onRefresh={loadImages}
+        onSidebarRefresh={loadSidebarData}
         availableTags={availableTags}
       />
       <ImageViewer />

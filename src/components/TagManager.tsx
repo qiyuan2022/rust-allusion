@@ -10,7 +10,7 @@ import {
   getRandomTagColor,
 } from "../api/tags";
 import { TagTree } from "./TagTree";
-import { Button, Input, Dropdown, Option, Text } from "@fluentui/react-components";
+import { Button, Input, Dropdown, Option, Text, Tooltip } from "@fluentui/react-components";
 
 interface TagManagerProps {
   className?: string;
@@ -28,114 +28,150 @@ export function TagManager({
   const [isCreating, setIsCreating] = useState(false);
   const [newTagName, setNewTagName] = useState("");
   const [selectedColor, setSelectedColor] = useState(getRandomTagColor());
-  const [selectedParentId, setSelectedParentId] = useState<string>("");
+  const [parentTagId, setParentTagId] = useState<string>("");
+  const [allTags, setAllTags] = useState<Tag[]>([]);
   const [editingTag, setEditingTag] = useState<Tag | null>(null);
 
-  const loadTagTree = useCallback(async () => {
+  const loadTags = useCallback(async () => {
     try {
       setLoading(true);
       const tree = await getTagTree();
       setTagTree(tree);
+      // 收集所有标签用于父标签选择
+      const tags: Tag[] = [];
+      const collectTags = (nodes: TagTreeNode[]) => {
+        nodes.forEach((node) => {
+          tags.push({
+            id: node.id,
+            name: node.name,
+            color: node.color,
+            parent_id: node.parent_id,
+            created_at: 0,
+            updated_at: 0,
+          });
+          collectTags(node.children);
+        });
+      };
+      collectTags(tree);
+      setAllTags(tags);
     } catch (error) {
-      console.error("Failed to load tag tree:", error);
+      console.error("Failed to load tags:", error);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadTagTree();
-  }, [loadTagTree]);
+    loadTags();
+  }, [loadTags]);
 
   const handleCreateTag = async () => {
     if (!newTagName.trim()) return;
-
     try {
       await createTag({
         name: newTagName.trim(),
-        parent_id: selectedParentId ? parseInt(selectedParentId) : null,
         color: selectedColor,
+        parent_id: parentTagId ? Number(parentTagId) : undefined,
       });
-      
       setNewTagName("");
       setIsCreating(false);
-      setSelectedParentId("");
       setSelectedColor(getRandomTagColor());
-      await loadTagTree();
+      setParentTagId("");
+      loadTags();
     } catch (error) {
       console.error("Failed to create tag:", error);
+      alert("创建标签失败: " + error);
     }
   };
 
   const handleUpdateTag = async () => {
-    if (!editingTag || !editingTag.name.trim()) return;
-
+    if (!editingTag || !newTagName.trim()) return;
     try {
       await updateTag(editingTag.id, {
-        name: editingTag.name,
-        color: editingTag.color,
+        name: newTagName.trim(),
+        color: selectedColor,
+        parent_id: parentTagId ? Number(parentTagId) : undefined,
       });
-      
       setEditingTag(null);
-      await loadTagTree();
+      setNewTagName("");
+      setSelectedColor(getRandomTagColor());
+      setParentTagId("");
+      loadTags();
     } catch (error) {
       console.error("Failed to update tag:", error);
+      alert("更新标签失败: " + error);
     }
   };
 
-  const flattenTags = (nodes: TagTreeNode[]): Tag[] => {
-    const result: Tag[] = [];
-    const traverse = (nodes: TagTreeNode[]) => {
-      nodes.forEach((node) => {
-        result.push(node);
-        if (node.children.length > 0) {
-          traverse(node.children);
-        }
-      });
-    };
-    traverse(nodes);
-    return result;
+  const handleDeleteTag = async (tagId: number) => {
+    if (!confirm("确定要删除这个标签吗？")) return;
+    try {
+      await deleteTag(tagId);
+      loadTags();
+    } catch (error) {
+      console.error("Failed to delete tag:", error);
+      alert("删除标签失败: " + error);
+    }
+  };
+
+  const startEdit = (tag: Tag) => {
+    setEditingTag(tag);
+    setNewTagName(tag.name);
+    setSelectedColor(tag.color);
+    setParentTagId(tag.parent_id ? String(tag.parent_id) : "");
+    setIsCreating(true);
+  };
+
+  const cancelEdit = () => {
+    setEditingTag(null);
+    setNewTagName("");
+    setSelectedColor(getRandomTagColor());
+    setParentTagId("");
+    setIsCreating(false);
   };
 
   if (loading) {
     return (
       <div className={`p-4 ${className}`}>
-        <div className="animate-pulse space-y-2">
-          <div className="h-8 bg-gray-200 rounded"></div>
-          <div className="h-40 bg-gray-200 rounded"></div>
-        </div>
+        <Text>加载中...</Text>
       </div>
     );
   }
 
-  const allTags = flattenTags(tagTree);
-
   return (
-    <div className={`flex flex-col h-full ${className}`}>
-      {/* 头部工具栏 */}
-      <div className="flex items-center justify-between p-3 border-b">
-        <Text weight="semibold">标签管理</Text>
-        <Button appearance="primary" size="small" onClick={() => setIsCreating(true)}>
-          + 新建标签
+    <div className={`p-4 ${className}`}>
+      <div className="flex items-center justify-between mb-4">
+        <Text weight="semibold" size={500}>
+          标签管理
+        </Text>
+        <Button
+          appearance="primary"
+          onClick={() => setIsCreating(true)}
+          disabled={isCreating}
+          size="small"
+        >
+          新建标签
         </Button>
       </div>
 
-      {/* 创建标签表单 */}
       {isCreating && (
-        <div className="p-3 border-b bg-gray-50">
+        <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+          <Text weight="semibold" className="block mb-3">
+            {editingTag ? "编辑标签" : "新建标签"}
+          </Text>
+
           <Input
             value={newTagName}
             onChange={(e) => setNewTagName(e.target.value)}
             placeholder="标签名称"
-            className="w-full mb-2"
-            onKeyDown={(e) => e.key === "Enter" && handleCreateTag()}
+            className="w-full mb-3"
           />
 
           <Dropdown
-            value={selectedParentId}
-            onOptionSelect={(_e, data) => setSelectedParentId(data.optionValue as string)}
-            className="w-full mb-2"
+            value={parentTagId}
+            onOptionSelect={(_, data) => setParentTagId(data.optionValue as string)}
             placeholder="选择父标签（可选）"
+            className="w-full mb-3"
           >
             <Option value="">无父标签（顶级标签）</Option>
             {allTags.map((tag) => (
@@ -147,90 +183,32 @@ export function TagManager({
 
           <div className="flex flex-wrap gap-2 mb-3">
             {TAG_COLORS.map((color) => (
-              <button
-                key={color.value}
-                onClick={() => setSelectedColor(color.value)}
-                className={`w-6 h-6 rounded-full border-2 ${
-                  selectedColor === color.value
-                    ? "border-gray-800"
-                    : "border-transparent"
-                }`}
-                style={{ backgroundColor: color.value }}
-                title={color.name}
-              />
+              <Tooltip key={color.value} content={color.name} relationship="label">
+                <button
+                  onClick={() => setSelectedColor(color.value)}
+                  className={`w-6 h-6 rounded-full border-2 ${
+                    selectedColor === color.value
+                      ? "border-gray-800"
+                      : "border-transparent"
+                  }`}
+                  style={{ backgroundColor: color.value }}
+                />
+              </Tooltip>
             ))}
           </div>
 
           <div className="flex gap-2">
             <Button
               appearance="primary"
-              onClick={handleCreateTag}
+              onClick={editingTag ? handleUpdateTag : handleCreateTag}
               disabled={!newTagName.trim()}
               size="small"
             >
-              创建
+              {editingTag ? "更新" : "创建"}
             </Button>
             <Button
               appearance="secondary"
-              onClick={() => {
-                setIsCreating(false);
-                setNewTagName("");
-                setSelectedParentId("");
-              }}
-              size="small"
-            >
-              取消
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* 编辑标签表单 */}
-      {editingTag && (
-        <div className="p-3 border-b bg-primary-50">
-          <Text weight="semibold" block style={{ marginBottom: "8px" }}>
-            编辑标签
-          </Text>
-          
-          <Input
-            value={editingTag.name}
-            onChange={(e) =>
-              setEditingTag({ ...editingTag, name: e.target.value })
-            }
-            placeholder="标签名称"
-            className="w-full mb-2"
-          />
-
-          <div className="flex flex-wrap gap-2 mb-3">
-            {TAG_COLORS.map((color) => (
-              <button
-                key={color.value}
-                onClick={() =>
-                  setEditingTag({ ...editingTag, color: color.value })
-                }
-                className={`w-6 h-6 rounded-full border-2 ${
-                  editingTag.color === color.value
-                    ? "border-gray-800"
-                    : "border-transparent"
-                }`}
-                style={{ backgroundColor: color.value }}
-                title={color.name}
-              />
-            ))}
-          </div>
-
-          <div className="flex gap-2">
-            <Button
-              appearance="primary"
-              onClick={handleUpdateTag}
-              disabled={!editingTag.name.trim()}
-              size="small"
-            >
-              保存
-            </Button>
-            <Button
-              appearance="secondary"
-              onClick={() => setEditingTag(null)}
+              onClick={cancelEdit}
               size="small"
             >
               取消
@@ -240,24 +218,14 @@ export function TagManager({
       )}
 
       {/* 标签树 */}
-      <div className="flex-1 overflow-y-auto">
-        <TagTree
-          nodes={tagTree}
-          selectedTagId={selectedTagId}
-          onSelectTag={(tag) => {
-            onTagSelect?.(tag);
-            setEditingTag(tag);
-          }}
-          onTagMoved={loadTagTree}
-          onTagDeleted={loadTagTree}
-          draggable={true}
-        />
-      </div>
-
-      {/* 统计信息 */}
-      <div className="p-3 border-t text-xs text-gray-500">
-        共 {allTags.length} 个标签
-      </div>
+      <TagTree
+        nodes={tagTree}
+        selectedTagId={selectedTagId}
+        onSelectTag={(tag) => onTagSelect?.(tag)}
+        onTagMoved={loadTags}
+        onTagDeleted={loadTags}
+        draggable={true}
+      />
     </div>
   );
 }
