@@ -6,7 +6,6 @@ import {
   DialogSurface,
   DialogTitle,
   DialogContent,
-  DialogActions,
   Button,
   Text,
 } from "@fluentui/react-components";
@@ -33,7 +32,7 @@ export function TagSelectDialog({
 
   useEffect(() => {
     if (isOpen) {
-      setSelectedIds([]);
+      setSelectedIds(initialSelectedIds);
       setNewTagNames([]);
     }
   }, [isOpen]);
@@ -55,6 +54,7 @@ export function TagSelectDialog({
         <DialogTitle style={{ fontSize: "16px" }}>给 {imageCount} 张图片打标签</DialogTitle>
         <DialogContent style={{ overflow: "visible" }}>
           <TagInput
+            key={isOpen ? "open" : "closed"}
             availableTags={availableTags}
             selectedTagIds={selectedIds}
             onChange={handleTagChange}
@@ -64,7 +64,7 @@ export function TagSelectDialog({
             提示：输入标签名后按回车添加，点击标签可删除。若标签不存在将自动创建。
           </Text>
         </DialogContent>
-        <DialogActions style={{ marginTop: "12px" }}>
+        <div className="flex items-center justify-between mt-3">
           <Text className="text-sm text-gray-500">
             {totalTags > 0 ? `已选 ${totalTags} 个标签` : "将清除所有标签"}
           </Text>
@@ -76,7 +76,7 @@ export function TagSelectDialog({
               确认
             </Button>
           </div>
-        </DialogActions>
+        </div>
       </DialogSurface>
     </Dialog>
   );

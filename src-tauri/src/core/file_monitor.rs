@@ -71,13 +71,24 @@ impl FileMonitor {
         // 创建事件发送通道的克隆
         let event_tx = self.event_tx.clone();
         let location_id_clone = location_id;
-        let path_clone = path.to_path_buf();
+        let _path_clone = path.to_path_buf();
+        
+        // 开始监控（使用 notify 的 Watcher trait）
+        let mode = if recursive {
+            RecursiveMode::Recursive
+        } else {
+            RecursiveMode::NonRecursive
+        };
         
         // 创建 notify watcher
-        let watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+        let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
             match res {
                 Ok(event) => {
                     let paths: Vec<_> = event.paths.clone();
+                    tracing::debug!(
+                        "File monitor event for location {}: kind={:?}, paths={:?}",
+                        location_id_clone, event.kind, paths
+                    );
                     
                     // 根据事件类型处理
                     match event.kind {
@@ -122,38 +133,13 @@ impl FileMonitor {
             }
         })?;
         
+        watcher.watch(path, mode)?;
+        
         // 创建监控实例
-        let mut instance = MonitorInstance {
+        let instance = MonitorInstance {
             _watcher: watcher,
             path: path.to_path_buf(),
         };
-        
-        // 开始监控（使用 notify 的 Watcher trait）
-        // 注意：这里我们使用一个独立的 watcher 实例
-        let mode = if recursive {
-            RecursiveMode::Recursive
-        } else {
-            RecursiveMode::NonRecursive
-        };
-        
-        // 重新创建 watcher 以获取可变引用
-        let event_tx2 = self.event_tx.clone();
-        let location_id_clone2 = location_id;
-        let mut watcher2 = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
-            if let Ok(event) = res {
-                let paths: Vec<_> = event.paths.clone();
-                for path in paths {
-                    let _ = event_tx2.try_send(FileSystemEvent::Created {
-                        path,
-                        location_id: location_id_clone2,
-                    });
-                }
-            }
-        })?;
-        
-        watcher2.watch(path, mode)?;
-        
-        instance._watcher = watcher2;
         
         // 保存监控实例
         {
@@ -182,40 +168,10 @@ impl FileMonitor {
         Ok(())
     }
     
-    /// 获取下一个文件系统事件（带防抖）
+    /// 获取下一个文件系统事件
     pub async fn next_event(&self) -> Option<FileSystemEvent> {
         let mut rx = self.event_rx.lock().await;
-        
-        while let Some(event) = rx.recv().await {
-            // 检查防抖
-            if let Some(path) = event_path(&event) {
-                if self.should_debounce(&path).await {
-                    tracing::debug!("Debounced event for: {:?}", path);
-                    continue;
-                }
-            }
-            
-            return Some(event);
-        }
-        
-        None
-    }
-    
-    /// 检查是否需要防抖
-    async fn should_debounce(&self, path: &Path) -> bool {
-        let now = std::time::Instant::now();
-        let mut debounce_map = self.debounce_map.write().await;
-        
-        if let Some(last_time) = debounce_map.get(path) {
-            if now.duration_since(*last_time) < self.debounce_duration {
-                // 更新时间为当前，延长防抖窗口
-                debounce_map.insert(path.to_path_buf(), now);
-                return true;
-            }
-        }
-        
-        debounce_map.insert(path.to_path_buf(), now);
-        false
+        rx.recv().await
     }
     
     /// 获取所有监控的位置

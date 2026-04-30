@@ -28,7 +28,7 @@ pub struct AppState {
 }
 
 fn main() {
-    tracing_subscriber::fmt::init();
+    // tracing_subscriber 不再初始化，tracing 事件通过 tracing 的 log feature 桥接到 tauri-plugin-log
 
     match vips::initialize() {
         Ok(()) => {
@@ -45,6 +45,25 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("app.log".into()),
+                    }),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+                ])
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                .level(if cfg!(debug_assertions) {
+                    log::LevelFilter::Debug
+                } else {
+                    log::LevelFilter::Info
+                })
+                .level_for("sqlx", log::LevelFilter::Warn)
+                .level_for("sqlx::query", log::LevelFilter::Warn)
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             // 图片命令
             create_image,
@@ -117,14 +136,20 @@ fn main() {
                 window.open_devtools();
             }
             
+            // 强制隐藏原生标题栏（tauri.conf.json 的 decorations 配置在 Windows 上可能不生效）
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_decorations(false);
+            }
+            
             // 初始化数据库
             let app_handle = app.handle().clone();
             tauri::async_runtime::block_on(async move {
                 match init_db(&app_handle).await {
                     Ok(pool) => {
                         // 创建文件监控器
-                        let file_monitor = FileMonitor::new()
-                            .expect("Failed to create file monitor");
+                        let file_monitor = Arc::new(
+                            FileMonitor::new().expect("Failed to create file monitor")
+                        );
                         
                         // 从数据库读取缩略图目录设置
                         let thumbnail_dir_setting: Option<String> = sqlx::query_scalar(
@@ -158,6 +183,7 @@ fn main() {
                             Arc::clone(&thumbnail_dir_arc),
                             4, // 最大并发数
                         );
+                        let thumbnail_service = Arc::new(thumbnail_service);
                         
                         // 创建搜索服务
                         let search_index_dir = app_handle
@@ -173,14 +199,128 @@ fn main() {
                         
                         let search_service = Arc::new(search_service);
                         
+                        // 为已有位置恢复文件监控
+                        let locations = db::LocationRepository::list_all(&pool).await.unwrap_or_default();
+                        for loc in &locations {
+                            let path = std::path::Path::new(&loc.path);
+                            if let Err(e) = file_monitor.add_location(loc.id, path, loc.is_recursive).await {
+                                tracing::warn!("Failed to monitor location {} ({}): {}", loc.id, loc.path, e);
+                            }
+                        }
+                        
                         // 启动后台索引任务
                         let indexing_worker = IndexingWorker::new(Arc::clone(&search_service));
                         indexing_worker.start();
                         
+                        // 启动文件监控事件处理后台任务
+                        let file_monitor_clone = Arc::clone(&file_monitor);
+                        let pool_clone = pool.clone();
+                        let thumbnail_service_clone = Arc::clone(&thumbnail_service);
+                        let search_service_clone = Arc::clone(&search_service);
+                        
+                        tokio::spawn(async move {
+                            use crate::core::file_monitor::{FileSystemEvent, is_supported_image};
+                            use crate::core::importer::ImageImporter;
+                            use crate::db::ImageRepository;
+                            use crate::models::UpdateImageRequest;
+                            
+                            while let Some(event) = file_monitor_clone.next_event().await {
+                                match event {
+                                    FileSystemEvent::Created { path, location_id } => {
+                                        if is_supported_image(&path) {
+                                            let (importer, _rx) = ImageImporter::with_thumbnail_service(
+                                                pool_clone.clone(),
+                                                2,
+                                                Arc::clone(&thumbnail_service_clone),
+                                            );
+                                            match importer.import_single(&path, location_id).await {
+                                                Ok(image) => {
+                                                    let _ = search_service_clone.index_image(image.id).await;
+                                                    tracing::info!("Auto-imported new image from file monitor: {:?} (id: {})", path, image.id);
+                                                }
+                                                Err(e) => {
+                                                    tracing::warn!("Failed to auto-import image from file monitor: {:?} - {}", path, e);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    FileSystemEvent::Modified { path, .. } => {
+                                        if is_supported_image(&path) {
+                                            match ImageRepository::get_by_path(&pool_clone, path.to_str().unwrap_or("")).await {
+                                                Ok(Some(existing)) => {
+                                                    if let Ok(metadata) = tokio::fs::metadata(&path).await {
+                                                        // 文件仍存在，更新元数据
+                                                        let file_size = metadata.len() as i64;
+                                                        let file_modified_at = metadata.modified()
+                                                            .ok()
+                                                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                                            .map(|d| d.as_secs() as i64)
+                                                            .unwrap_or_else(|| chrono::Utc::now().timestamp());
+                                                        
+                                                        let req = UpdateImageRequest {
+                                                            file_size: Some(file_size),
+                                                            file_modified_at: Some(file_modified_at),
+                                                            width: None,
+                                                            height: None,
+                                                            format: None,
+                                                            color_space: None,
+                                                        };
+                                                        
+                                                        if let Ok(Some(updated)) = ImageRepository::update(&pool_clone, existing.id, req).await {
+                                                            let _ = search_service_clone.index_image(updated.id).await;
+                                                            tracing::debug!("Auto-updated image from file monitor: {:?} (id: {})", path, updated.id);
+                                                        }
+                                                    } else {
+                                                        // 文件已不存在（如被删除/重命名到回收站），从数据库移除
+                                                        let id = existing.id;
+                                                        if let Ok(true) = ImageRepository::delete(&pool_clone, id).await {
+                                                            let _ = search_service_clone.remove_image(id).await;
+                                                            tracing::info!("Auto-deleted missing image from file monitor: {:?} (id: {})", path, id);
+                                                        }
+                                                    }
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                    }
+                                    FileSystemEvent::Deleted { path, .. } => {
+                                        match ImageRepository::get_by_path(&pool_clone, path.to_str().unwrap_or("")).await {
+                                            Ok(Some(existing)) => {
+                                                let id = existing.id;
+                                                if let Ok(true) = ImageRepository::delete(&pool_clone, id).await {
+                                                    let _ = search_service_clone.remove_image(id).await;
+                                                    tracing::info!("Auto-deleted image from file monitor: {:?} (id: {})", path, id);
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                    FileSystemEvent::Batch { paths, location_id } => {
+                                        for path in paths {
+                                            if is_supported_image(&path) {
+                                                if let Ok(metadata) = tokio::fs::metadata(&path).await {
+                                                    if metadata.is_file() {
+                                                        let (importer, _rx) = ImageImporter::with_thumbnail_service(
+                                                            pool_clone.clone(),
+                                                            2,
+                                                            Arc::clone(&thumbnail_service_clone),
+                                                        );
+                                                        if let Ok(image) = importer.import_single(&path, location_id).await {
+                                                            let _ = search_service_clone.index_image(image.id).await;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        
                         app.manage(AppState {
                             db: Arc::new(Mutex::new(pool)),
-                            file_monitor: Arc::new(file_monitor),
-                            thumbnail_service: Arc::new(thumbnail_service),
+                            file_monitor,
+                            thumbnail_service,
                             search_service,
                             thumbnail_dir: thumbnail_dir_arc,
                         });

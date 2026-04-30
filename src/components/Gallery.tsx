@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useGalleryStore } from "../stores/gallery";
+import { useGalleryStore, ViewSize } from "../stores/gallery";
+import { useTagging } from "../hooks/useTagging";
 import { Image, Tag } from "../api/tags";
 import {
   Menu,
@@ -12,6 +13,8 @@ import {
   tokens,
   Spinner,
   Text,
+  Button,
+  Tooltip,
 } from "@fluentui/react-components";
 import { TagSelectDialog } from "./TagSelectDialog";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
@@ -25,6 +28,7 @@ import {
   EditRegular,
   TagMultipleRegular,
   DeleteRegular,
+  ArrowUpFilled,
 } from "@fluentui/react-icons";
 
 // 全局标志：用于阻止菜单关闭后的 click 穿透事件触发 clearSelection
@@ -37,22 +41,31 @@ interface GalleryProps {
   availableTags?: Tag[];
 }
 
-// 根据窗口宽度计算列数（与 Tailwind 断点一致）
-function getColumnCount(): number {
+// 根据窗口宽度和尺寸模式计算列数
+function getColumnCount(viewSize: ViewSize): number {
   const width = window.innerWidth;
-  if (width >= 1280) return 5; // xl:grid-cols-5
-  if (width >= 1024) return 4; // lg:grid-cols-4
-  if (width >= 768) return 3;  // md:grid-cols-3
-  if (width >= 640) return 3;  // sm:grid-cols-3
-  return 2; // grid-cols-2
+  const sizeMultiplier = viewSize === "small" ? 1.5 : viewSize === "large" ? 0.75 : 1;
+  
+  // 基础列数
+  let baseCols: number;
+  if (width >= 1280) baseCols = 5;
+  else if (width >= 1024) baseCols = 4;
+  else if (width >= 768) baseCols = 3;
+  else if (width >= 640) baseCols = 3;
+  else baseCols = 2;
+  
+  // 根据尺寸调整列数（小尺寸增加列数，大尺寸减少列数）
+  const adjustedCols = Math.round(baseCols * sizeMultiplier);
+  return Math.max(2, Math.min(adjustedCols, 8));
 }
 
-// 计算行高（根据列数和容器宽度）
-function getRowHeight(containerWidth: number, columns: number): number {
+// 计算行高（根据列数、容器宽度和尺寸模式）
+function getRowHeight(containerWidth: number, columns: number, viewSize: ViewSize): number {
   const gap = 8;
   const padding = 16;
   const itemWidth = (containerWidth - padding * 2 - (columns - 1) * gap) / columns;
-  const itemHeight = itemWidth * 0.75; // aspect-[4/3]
+  const sizeMultiplier = viewSize === "small" ? 0.7 : viewSize === "large" ? 1.5 : 1;
+  const itemHeight = itemWidth * 0.75 * sizeMultiplier; // aspect-[4/3] * 尺寸系数
   return itemHeight + gap; // 加上下间距
 }
 
@@ -175,14 +188,51 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
-  const [tagSelectorOpen, setTagSelectorOpen] = useState(false);
+  const { tagSelectorOpen, initialTagIds, openTagDialog, handleTagConfirm, closeTagDialog, selectedCount: taggingSelectedCount } = useTagging(availableTags, onSidebarRefresh);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [renameImageId, setRenameImageId] = useState<number | null>(null);
   const renameImage = renameImageId ? store.images.find((img) => img.id === renameImageId) : null;
 
-  const columns = useMemo(() => getColumnCount(), []);
-  const rowHeight = useMemo(() => getRowHeight(containerWidth, columns), [containerWidth, columns]);
+  // 滚动状态：快速拖动时暂停缩略图加载
+  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 返回顶部按钮显隐
+  const [showBackToTop, setShowBackToTop] = useState(false);
+
+  const handleScroll = useCallback(() => {
+    setIsScrolling(true);
+    const container = containerRef.current;
+    if (container) {
+      setShowBackToTop(container.scrollTop > 400);
+    }
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+    scrollTimeoutRef.current = setTimeout(() => {
+      setIsScrolling(false);
+    }, 100);
+  }, []);
+
+  const handleBackToTop = useCallback(() => {
+    containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  // 原生滚动监听（双重保险，防止 React onScroll 在嵌套滚动容器中漏掉事件）
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const onScroll = () => {
+      setShowBackToTop(container.scrollTop > 400);
+    };
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => container.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const columns = useMemo(() => getColumnCount(store.viewSize), [store.viewSize]);
+  const rowHeight = useMemo(() => getRowHeight(containerWidth, columns, store.viewSize), [containerWidth, columns, store.viewSize]);
 
   const rowCount = useMemo(() => {
     return Math.ceil(store.images.length / columns);
@@ -192,7 +242,7 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
     count: store.viewMode === "grid" ? rowCount : 0,
     getScrollElement: () => containerRef.current,
     estimateSize: () => rowHeight || 150,
-    overscan: 3,
+    overscan: 5,
     getItemKey: (index) => `grid-row-${index}`,
   });
 
@@ -209,7 +259,7 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
 
     let currentRowImages: typeof store.images = [];
     let currentRowWidth = 0;
-    const targetRowHeight = 120;
+    const targetRowHeight = store.viewSize === "small" ? 80 : store.viewSize === "large" ? 180 : 120;
     const spacing = 8;
     const maxContainerWidth = containerWidth - 32;
 
@@ -258,7 +308,7 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
     }
 
     return rows;
-  }, [store.images, store.viewMode, containerWidth]);
+  }, [store.images, store.viewMode, containerWidth, store.viewSize]);
 
   const ROW_GAP = 8;
   
@@ -266,7 +316,7 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
     count: store.viewMode === "justified" ? justifiedRows.length : 0,
     getScrollElement: () => containerRef.current,
     estimateSize: (index) => (justifiedRows[index]?.height || 120) + ROW_GAP,
-    overscan: 2,
+    overscan: 5,
     getItemKey: (index) => `justified-row-${index}`,
   });
 
@@ -285,7 +335,12 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
 
     updateDimensions();
 
+    // ResizeObserver 过滤因滚动条出现/消失导致的微小宽度抖动（Windows 约 17px）
+    let lastWidth = container.clientWidth;
     const resizeObserver = new ResizeObserver(() => {
+      const newWidth = container.clientWidth;
+      if (Math.abs(newWidth - lastWidth) < 20) return;
+      lastWidth = newWidth;
       updateDimensions();
     });
     resizeObserver.observe(container);
@@ -312,6 +367,14 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
     });
   }, [store.viewMode, gridVirtualizer, justifiedVirtualizer]);
 
+  // 尺寸变化时重新测量两个虚拟化器
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      gridVirtualizer.measure();
+      justifiedVirtualizer.measure();
+    });
+  }, [store.viewSize, gridVirtualizer, justifiedVirtualizer]);
+
   const handleImageClick = useCallback((imageId: number, event?: React.MouseEvent) => {
     const isMulti = event ? (event.ctrlKey || event.metaKey || event.shiftKey) : false;
     store.selectImage(imageId, isMulti);
@@ -319,14 +382,6 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
 
   const selectedCount = store.selectedIds.size;
 
-  const handleTagConfirm = async (tagIds: number[], newTagNames: string[]) => {
-    const selectedIds = Array.from(store.selectedIds);
-    if (selectedIds.length === 0) return;
-
-    await store.addTagsToImages(selectedIds, tagIds, newTagNames);
-    onSidebarRefresh?.();
-    setTagSelectorOpen(false);
-  };
 
   const handleDeleteConfirm = async (deleteSourceFile: boolean) => {
     const selectedIds = Array.from(store.selectedIds);
@@ -360,8 +415,12 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
           width: '100%',
           height: `${virtualRow.size}px`,
           transform: `translateY(${virtualRow.start}px)`,
+          display: 'grid',
+          gridTemplateColumns: `repeat(${columns}, 1fr)`,
+          gap: '0px 8px',
+          paddingLeft: '16px',
+          paddingRight: '16px',
         }}
-        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 px-4 pt-4"
       >
         {rowImages.map((image) => {
           const isSelected = store.selectedIds.has(image.id);
@@ -371,7 +430,7 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
             <ImageContextMenu
               key={image.id}
               imageId={image.id}
-              onTag={() => setTagSelectorOpen(true)}
+              onTag={openTagDialog}
               onDelete={() => setDeleteDialogOpen(true)}
               onRename={() => {
                 setRenameImageId(image.id);
@@ -398,6 +457,7 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
                   fileName={image.file_name}
                   existingPath={image.thumbnail_path}
                   className="w-full h-full"
+                  isScrolling={isScrolling}
                 />
                 {isSelected && (
                   <div className="absolute top-2 right-2 w-6 h-6 bg-[#0f6cbd] rounded flex items-center justify-center">
@@ -438,7 +498,7 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
     }
 
     return (
-      <div style={{ height: `${totalSize}px`, position: 'relative' }}>
+      <div style={{ height: `${totalSize}px`, position: 'relative', paddingTop: '16px' }}>
         {virtualItems.map(renderGridRow)}
       </div>
     );
@@ -488,7 +548,7 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
             <ImageContextMenu
               key={image.id}
               imageId={image.id}
-              onTag={() => setTagSelectorOpen(true)}
+              onTag={openTagDialog}
               onDelete={() => setDeleteDialogOpen(true)}
               onRename={() => {
                 setRenameImageId(image.id);
@@ -517,6 +577,7 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
                   fileName={image.file_name}
                   existingPath={image.thumbnail_path}
                   className="w-full h-full"
+                  isScrolling={isScrolling}
                 />
                 {isSelected && (
                   <div className="absolute top-2 right-2 w-6 h-6 bg-[#0f6cbd] rounded flex items-center justify-center">
@@ -570,7 +631,8 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
   return (
     <div
       ref={containerRef}
-      className="flex-1 overflow-y-auto overflow-x-hidden h-full"
+      className="relative flex-1 overflow-y-auto overflow-x-hidden h-full"
+      onScroll={handleScroll}
       onClick={(e) => {
         if (menuJustClosed) {
           menuJustClosed = false;
@@ -585,7 +647,14 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
         store.clearSelection();
       }}
     >
-      {store.images.length === 0 ? (
+      {store.images.length === 0 && store.isLoading ? (
+        <div className="h-full flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <Spinner size="small" />
+            <Text className="text-gray-500 dark:text-gray-400">正在加载图片...</Text>
+          </div>
+        </div>
+      ) : store.images.length === 0 ? (
         <div className="h-full flex items-center justify-center">
           <div className="text-center">
             <ImageMultipleRegular className="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
@@ -604,15 +673,14 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
 
           {/* 底部状态栏 */}
           <div className="flex items-center justify-center p-8">
-            {store.isLoading && store.allImages.length === 0 ? (
+            {store.isLoading ? (
               <div className="flex flex-col items-center gap-2">
                 <Spinner size="tiny" />
-                <Text className="text-gray-400 dark:text-gray-500">正在加载图片...</Text>
-              </div>
-            ) : store.isLoading ? (
-              <div className="flex flex-col items-center gap-2">
-                <Spinner size="tiny" />
-                <Text className="text-gray-400 dark:text-gray-500">正在处理...</Text>
+                <Text className="text-gray-400 dark:text-gray-500">
+                  {store.allImages.length > 0
+                    ? `已加载 ${store.allImages.length} 张，继续加载中...`
+                    : "正在加载图片..."}
+                </Text>
               </div>
             ) : store.isSearching ? (
               <Text className="text-gray-400 dark:text-gray-500">
@@ -628,14 +696,36 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
         </>
       )}
 
+      {/* 返回顶部按钮 */}
+      {store.images.length > 0 && (
+        <Tooltip content="返回顶部" relationship="label">
+          <button
+            type="button"
+            onClick={handleBackToTop}
+            className={[
+              "fixed bottom-8 right-10 z-40 w-12 h-12 rounded-full shadow-lg",
+              "bg-white/90 dark:bg-gray-800/90",
+              "hover:bg-gray-100 dark:hover:bg-gray-700",
+              "transition-all duration-300 ease-out",
+              "flex items-center justify-center",
+              showBackToTop
+                ? "opacity-100 scale-100 translate-y-0 pointer-events-auto"
+                : "opacity-0 scale-75 translate-y-4 pointer-events-none",
+            ].join(" ")}
+          >
+            <ArrowUpFilled fontSize={24} className="text-blue-600 dark:text-blue-400" />
+          </button>
+        </Tooltip>
+      )}
+
       {/* 标签选择弹窗 */}
       <TagSelectDialog
         isOpen={tagSelectorOpen}
-        onClose={() => setTagSelectorOpen(false)}
+        onClose={closeTagDialog}
         onConfirm={handleTagConfirm}
         availableTags={availableTags}
-        selectedTagIds={[]}
-        imageCount={store.selectedIds.size}
+        selectedTagIds={initialTagIds}
+        imageCount={taggingSelectedCount}
       />
 
       {/* 删除确认弹窗 */}

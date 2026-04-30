@@ -24,7 +24,7 @@ export function TagBadge({
     <span
       className={`
         inline-flex items-center gap-0.5
-        bg-gray-800/90 dark:bg-gray-700/90
+        bg-black/60 backdrop-blur-sm
         text-white
         font-medium
         whitespace-nowrap

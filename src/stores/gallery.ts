@@ -4,6 +4,7 @@ import { Image, Tag } from "../api/tags";
 import { SearchResponse } from "../api/search";
 
 export type ViewMode = "grid" | "masonry" | "justified";
+export type ViewSize = "small" | "medium" | "large";
 
 export interface GalleryState {
   // 图片数据
@@ -17,6 +18,7 @@ export interface GalleryState {
   
   // 视图状态
   viewMode: ViewMode;
+  viewSize: ViewSize;
   selectedIds: Set<number>;
   currentPage: number;
   pageSize: number;
@@ -51,6 +53,7 @@ export interface GalleryState {
   clearSearch: () => void;
   setLoading: (loading: boolean) => void;
   setViewMode: (mode: ViewMode) => void;
+  setViewSize: (size: ViewSize) => void;
   setSearchQuery: (query: string) => void;
   setSelectedTagIds: (ids: number[]) => void;
   toggleTagSelection: (id: number) => void;
@@ -75,7 +78,7 @@ export interface GalleryState {
   setDarkMode: (dark: boolean) => void;
   // 右键菜单操作
   renameImage: (imageId: number, newName: string) => Promise<void>;
-  addTagsToImages: (imageIds: number[], tagIds: number[], newTagNames?: string[], onSuccess?: () => void) => Promise<void>;
+  addTagsToImages: (imageIds: number[], tagIds: number[], newTagNames?: string[], availableTags?: Tag[], onSuccess?: () => void) => Promise<void>;
   deleteImages: (imageIds: number[], deleteSourceFile: boolean) => Promise<void>;
   createTag: (name: string, color?: string, parentId?: number | null) => Promise<number | null>;
 }
@@ -89,6 +92,7 @@ const initialState = {
   isLoading: false,
   isSearching: false,
   viewMode: "justified" as ViewMode,
+  viewSize: "medium" as ViewSize,
   selectedIds: new Set<number>(),
   currentPage: 0,
   pageSize: 50,
@@ -156,6 +160,7 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
   setLoading: (loading) => set({ isLoading: loading }),
 
   setViewMode: (mode) => set({ viewMode: mode }),
+  setViewSize: (size) => set({ viewSize: size }),
 
   setSearchQuery: (query) => set((state) => ({ searchQuery: query, currentPage: 0, searchVersion: state.searchVersion + 1 })),
 
@@ -312,7 +317,7 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
   },
 
   // 给图片打标签（支持清除所有标签）
-  addTagsToImages: async (imageIds, tagIds, newTagNames = [], onSuccess) => {
+  addTagsToImages: async (imageIds, tagIds, newTagNames = [], availableTags = [], onSuccess) => {
     try {
       // 如果没有任何标签，则清除所有标签
       if (tagIds.length === 0 && newTagNames.length === 0) {
@@ -349,6 +354,9 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
       if (allTagIds.length > 0) {
         await invoke("add_tags_to_images", { imageIds, tagIds: allTagIds });
         
+        // 从 availableTags 中找出用户选择的已有标签的完整信息
+        const selectedExistingTags = availableTags.filter((tag) => tagIds.includes(tag.id));
+        
         // 更新本地状态 - 为选中图片添加标签
         set((state) => ({
           images: state.images.map((img) => {
@@ -356,9 +364,19 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
             
             // 获取现有标签
             const existingTags = img.tags || [];
+            const existingTagIds = new Set(existingTags.map((t) => t.id));
             
-            // 添加新创建的标签
-            const updatedTags = [...existingTags, ...newTags];
+            // 添加已有标签（去重）
+            const mergedExistingTags = selectedExistingTags.filter(
+              (tag) => !existingTagIds.has(tag.id)
+            );
+            
+            // 添加新创建的标签（去重）
+            const mergedNewTags = newTags.filter(
+              (tag) => !existingTagIds.has(tag.id)
+            );
+            
+            const updatedTags = [...existingTags, ...mergedExistingTags, ...mergedNewTags];
             
             return { ...img, tags: updatedTags };
           }),

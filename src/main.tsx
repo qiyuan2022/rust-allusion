@@ -3,6 +3,10 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { FluentProvider, webLightTheme, webDarkTheme, type Theme } from '@fluentui/react-components';
+import { initLogger } from "./utils/logger";
+
+// 初始化日志：将前端 console 输出重定向到 Tauri 日志文件
+initLogger();
 
 // 自定义主题：覆盖为系统字体，确保 Fluent UI 组件与整体风格一致
 const fontFamilyBase = '-apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';

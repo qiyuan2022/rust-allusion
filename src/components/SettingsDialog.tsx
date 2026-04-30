@@ -27,6 +27,8 @@ import {
 } from "@fluentui/react-components";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
+import { appDataDir } from "@tauri-apps/api/path";
+import { getVersion } from "@tauri-apps/api/app";
 import { getThumbnailDir, setThumbnailDir } from "../api/settings";
 import { useGalleryStore } from "../stores/gallery";
 
@@ -200,6 +202,15 @@ function GeneralSettings() {
     }
   };
 
+  const handleOpenDataDir = async () => {
+    try {
+      const dir = await appDataDir();
+      await invoke("show_in_folder", { path: dir });
+    } catch (error) {
+      console.error("Failed to open data directory:", error);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -272,6 +283,23 @@ function GeneralSettings() {
         <Caption1 style={{ color: tokens.colorNeutralForeground3 }}>
           更改目录时会自动将现有缩略图文件迁移到新位置
         </Caption1>
+
+        <div className={styles.settingItem}>
+          <div className={styles.settingLabel}>
+            <Body1>数据目录</Body1>
+            <Caption1 style={{ color: tokens.colorNeutralForeground3 }}>
+              应用数据、日志和数据库的存储位置
+            </Caption1>
+          </div>
+          <Button
+            appearance="outline"
+            icon={<FolderOpenRegular fontSize={16} />}
+            onClick={handleOpenDataDir}
+            style={{ flexShrink: 0 }}
+          >
+            打开目录
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -391,7 +419,12 @@ function ImportSettings() {
 
 // 关于页面
 function AboutSettings() {
+  const [appVersion, setAppVersion] = useState("");
   const styles = useStyles();
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(console.error);
+  }, []);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
@@ -401,13 +434,17 @@ function AboutSettings() {
         </div>
         <Subtitle1>Rust Allusion</Subtitle1>&nbsp;
         <Caption1 style={{ color: tokens.colorNeutralForeground3, marginTop: "4px" }}>
-          0.1.0
+          {appVersion || "加载中..."}
         </Caption1>
       </div>
 
       <Divider />
 
       <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+        <div className={styles.infoRow}>
+          <Caption1 style={{ color: tokens.colorNeutralForeground3 }}>构建时间</Caption1>
+          <Caption1>{__BUILD_TIME__}</Caption1>
+        </div>
         <div className={styles.infoRow}>
           <Caption1 style={{ color: tokens.colorNeutralForeground3 }}>Tauri 版本</Caption1>
           <Caption1>2.x</Caption1>

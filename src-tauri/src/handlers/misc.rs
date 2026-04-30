@@ -14,9 +14,9 @@ pub async fn show_in_folder(path: String) -> Result<(), String> {
         return Err(format!("文件不存在: {}", path.display()));
     }
 
-    if !path.is_file() {
-        return Err("路径不是文件".to_string());
-    }
+    // if !path.is_file() {
+    //     return Err("路径不是文件".to_string());
+    // }
 
     // 获取父目录
     let parent = path.parent().ok_or("无法获取父目录")?;

@@ -1,6 +1,5 @@
 import { useEffect, useCallback, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { TagPicker } from "@fluentui/react-components";
 
 // 将 invoke 暴露到全局，方便在控制台调试
 (window as any).tauriInvoke = invoke;
@@ -9,10 +8,11 @@ import { Layout } from "./components/Layout";
 import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
 import { Gallery } from "./components/Gallery";
+import { TitleBar } from "./components/TitleBar";
 import { ImageViewer } from "./components/ImageViewer";
 import { ImageDetail } from "./pages/ImageDetail";
 import { useGalleryStore } from "./stores/gallery";
-import { Image, Tag, TagTreeNode, getAllTags, getTagTree, getAllImages, getImagesBatch } from "./api/tags";
+import { Image, Tag, TagTreeNode, getAllTags, getTagTree, getAllImages, getImagesBatch, getImagesByTags } from "./api/tags";
 import { searchImages, getSearchIndexStatus, rebuildSearchIndex } from "./api/search";
 import { 
   Location, 
@@ -73,32 +73,29 @@ function MainApp() {
       setImageCount(totalCount);
       setLoadProgress({ loaded: 0, total: totalCount });
       
-      // 如果少于1000张，一次性加载
-      if (totalCount <= 1000) {
-        const allImages = await getAllImages(store.sortBy, store.sortOrder);
-        store.setAllImages(allImages);
-        setLoadProgress({ loaded: allImages.length, total: totalCount });
-      } else {
-        // 分批加载（用于1万张以上）
-        const allImages: Array<Image> = [];
-        let offset = 0;
-        
-        // 先加载第一批（500张），让用户快速看到内容
-        const firstBatch = await getImagesBatch(0, BATCH_SIZE, store.sortBy, store.sortOrder);
-        allImages.push(...firstBatch);
+      // 分批加载策略：无论总量多少，先加载第一批让 UI 尽早可用
+      const allImages: Array<Image> = [];
+      let offset = 0;
+      
+      // 先加载第一批（500张），让用户快速看到内容
+      const firstBatch = await getImagesBatch(0, BATCH_SIZE, store.sortBy, store.sortOrder);
+      allImages.push(...firstBatch);
+      store.setAllImages([...allImages]);
+      setLoadProgress({ loaded: firstBatch.length, total: totalCount });
+      
+      // 第一批到达后立即解除全屏 loading，让侧边栏/头部正常显示
+      // Gallery 内部会继续展示加载状态
+      setIsLoading(false);
+      
+      // 后台继续加载剩余数据
+      offset = BATCH_SIZE;
+      while (offset < totalCount) {
+        const batch = await getImagesBatch(offset, BATCH_SIZE, store.sortBy, store.sortOrder);
+        if (batch.length === 0) break;
+        allImages.push(...batch);
         store.setAllImages([...allImages]);
-        setLoadProgress({ loaded: firstBatch.length, total: totalCount });
-        
-        // 后台继续加载剩余数据
-        offset = BATCH_SIZE;
-        while (offset < totalCount) {
-          const batch = await getImagesBatch(offset, BATCH_SIZE, store.sortBy, store.sortOrder);
-          if (batch.length === 0) break;
-          allImages.push(...batch);
-          store.setAllImages([...allImages]);
-          setLoadProgress({ loaded: allImages.length, total: totalCount });
-          offset += BATCH_SIZE;
-        }
+        setLoadProgress({ loaded: allImages.length, total: totalCount });
+        offset += BATCH_SIZE;
       }
     } catch (error) {
       console.error("Failed to load all images:", error);
@@ -206,6 +203,29 @@ function MainApp() {
         return;
       }
 
+      // 纯标签筛选（无文本搜索词）时直接查数据库，避免搜索索引不同步
+      if (!query && store.selectedTagIds.length > 0) {
+        try {
+          store.setLoading(true);
+          const results = await getImagesByTags(store.selectedTagIds, "any", 0, 10000);
+          const resultIds = new Set(results.map((img) => img.id));
+          const filtered = store.allImages.filter((img) => resultIds.has(img.id));
+
+          store.setSearchResults({
+            total: filtered.length,
+            hits: filtered.map((img) => ({ image_id: img.id, score: 1, highlights: [] })),
+            has_more: false,
+          });
+          store.setImages(filtered);
+          store.setCurrentPage(0);
+        } catch (error) {
+          console.error("Tag filter failed:", error);
+        } finally {
+          store.setLoading(false);
+        }
+        return;
+      }
+
       try {
         store.setLoading(true);
         console.log("Searching with query:", query, "tag_ids:", store.selectedTagIds);
@@ -300,8 +320,12 @@ function MainApp() {
       }}
       viewMode={store.viewMode}
       onViewModeChange={store.setViewMode}
+      viewSize={store.viewSize}
+      onViewSizeChange={store.setViewSize}
       sortBy={store.sortBy}
       onSortChange={store.setSortBy}
+      availableTags={availableTags}
+      onSidebarRefresh={loadSidebarData}
     />
   );
 
@@ -356,7 +380,7 @@ function MainApp() {
 
   if (isLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-white dark:bg-gray-900">
+      <div className="h-full flex items-center justify-center bg-white dark:bg-gray-900">
         <div className="flex flex-col items-center gap-3">
           <Spinner size="small" />
           <Text className="text-gray-500 dark:text-gray-400 text-sm">加载中...</Text>
@@ -455,26 +479,33 @@ function App() {
 
   return (
     <div style={{ position: "relative", height: "100vh", overflow: "hidden" }}>
-      {/* 主应用界面（始终挂载，保持状态） */}
+      {/* 标题栏 - 始终固定在顶部，不受详情页 transform 影响 */}
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 200 }}>
+        <TitleBar />
+      </div>
+
+      {/* 主应用界面内容区（不含标题栏） */}
       <div
         style={{
           position: "absolute",
-          inset: 0,
+          top: 32,
+          left: 0,
+          right: 0,
+          bottom: 0,
           transform: store.isDetailOpen ? "translateX(-20px)" : "translateX(0)",
           opacity: store.isDetailOpen ? 0.5 : 1,
           transition: "transform 0.3s ease, opacity 0.3s ease",
-          pointerEvents: store.isDetailOpen ? "none" : "auto",
         }}
       >
         <MainApp />
       </div>
 
-      {/* 详情页（从右侧滑入的覆盖层） */}
+      {/* 详情页（从右侧滑入的覆盖层，避开标题栏） */}
       <div
         className="bg-white dark:bg-gray-900"
         style={{
           position: "absolute",
-          top: 0,
+          top: 32,
           right: 0,
           bottom: 0,
           width: "100%",

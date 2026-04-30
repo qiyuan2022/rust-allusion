@@ -1,44 +1,90 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { ImageProhibitedRegular } from "@fluentui/react-icons";
 import { Spinner } from "@fluentui/react-components";
 import { getOrGenerateThumbnailByHash, ThumbnailSize } from "../api/thumbnail";
 
 interface LazyThumbnailProps {
-  /** 图片ID */
   imageId: number;
-  /** 图片哈希值（用于直接拼接缩略图路径） */
   hash: string;
-  /** 原图路径（用于生成缩略图） */
   imagePath: string;
-  /** 文件名（用于 alt 和无缩略图时的占位显示） */
   fileName: string;
-  /** 已有的缩略图路径（数据库中的，优先使用） */
   existingPath?: string | null;
-  /** 缩略图尺寸 */
   size?: ThumbnailSize;
-  /** 容器类名 */
   className?: string;
-  /** 图片类名 */
   imgClassName?: string;
+  isScrolling?: boolean;
 }
 
-// 【全局缓存】记录已加载的缩略图路径，避免重复请求
-const thumbnailCache = new Map<string, string>();
+// ==================== 全局缓存 & 并发队列 ====================
 
-// 【全局 Set】记录正在加载中的缩略图，避免并发重复请求
-const loadingSet = new Set<string>();
+const urlCache = new Map<string, string>();
+const promiseCache = new Map<string, Promise<string | null>>();
 
-/**
- * 生成缓存 key
- */
-function getCacheKey(hash: string, size: ThumbnailSize): string {
+// 缩略图请求全局并发限制（后端 ThumbnailService 并发是 4，前端限制到 5 避免 IPC 拥堵）
+const MAX_CONCURRENT = 5;
+let running = 0;
+const taskQueue: Array<() => Promise<void>> = [];
+
+function runNext() {
+  if (taskQueue.length === 0 || running >= MAX_CONCURRENT) return;
+  running++;
+  const task = taskQueue.shift()!;
+  task().finally(() => {
+    running--;
+    runNext();
+  });
+}
+
+function enqueue(task: () => Promise<void>) {
+  taskQueue.push(task);
+  runNext();
+}
+
+function cacheKey(hash: string, size: ThumbnailSize): string {
   return `${hash}_${size}`;
 }
 
-/**
- * 【懒加载方案 + Hash 直接拼接】按需加载缩略图的组件
- */
+async function fetchThumbnail(
+  imageId: number,
+  hash: string,
+  imagePath: string,
+  size: ThumbnailSize,
+  existingPath?: string | null
+): Promise<string | null> {
+  const key = cacheKey(hash, size);
+
+  if (urlCache.has(key)) {
+    return urlCache.get(key)!;
+  }
+  if (promiseCache.has(key)) {
+    return promiseCache.get(key)!;
+  }
+
+  const promise = (async () => {
+    try {
+      if (existingPath) {
+        const url = convertFileSrc(existingPath.replace(/\\/g, "/"));
+        urlCache.set(key, url);
+        return url;
+      }
+      const thumbPath = await getOrGenerateThumbnailByHash(imageId, hash, imagePath, size);
+      if (thumbPath) {
+        const url = convertFileSrc(thumbPath.replace(/\\/g, "/"));
+        urlCache.set(key, url);
+        return url;
+      }
+      return null;
+    } finally {
+      promiseCache.delete(key);
+    }
+  })();
+
+  promiseCache.set(key, promise);
+  return promise;
+}
+
+// ============================================================
+
 export function LazyThumbnail({
   imageId,
   hash,
@@ -48,110 +94,94 @@ export function LazyThumbnail({
   size = "small",
   className = "",
   imgClassName = "",
+  isScrolling = false,
 }: LazyThumbnailProps) {
-  const [url, setUrl] = useState<string | null>(null);
+  const key = cacheKey(hash, size);
+  const [url, setUrl] = useState<string | null>(() => urlCache.get(key) || null);
   const [isLoading, setIsLoading] = useState(false);
-  const hasRequested = useRef(false);
+  const [isVisible, setIsVisible] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hasTriggered = useRef(false);
 
-  const loadThumbnail = useCallback(async () => {
-    const cacheKey = getCacheKey(hash, size);
-
-    // 1. 如果已有缩略图路径（数据库中的），直接使用
-    if (existingPath) {
-      const convertedUrl = convertFileSrc(existingPath.replace(/\\/g, "/"));
-      setUrl(convertedUrl);
-      thumbnailCache.set(cacheKey, convertedUrl);
-      return;
-    }
-
-    // 2. 检查全局缓存
-    if (thumbnailCache.has(cacheKey)) {
-      setUrl(thumbnailCache.get(cacheKey)!);
-      return;
-    }
-
-    // 3. 检查是否正在加载中（其他组件已发起请求）
-    if (loadingSet.has(cacheKey)) {
-      setIsLoading(true);
-      const checkInterval = setInterval(() => {
-        if (!loadingSet.has(cacheKey)) {
-          clearInterval(checkInterval);
-          if (thumbnailCache.has(cacheKey)) {
-            setUrl(thumbnailCache.get(cacheKey)!);
-          }
-          setIsLoading(false);
-        }
-      }, 100);
-      return;
-    }
-
-    // 4. 标记为加载中
-    loadingSet.add(cacheKey);
-    setIsLoading(true);
-    hasRequested.current = true;
-
-    try {
-      const thumbPath = await getOrGenerateThumbnailByHash(
-        imageId,
-        hash,
-        imagePath,
-        size
-      );
-      
-      if (thumbPath) {
-        const convertedUrl = convertFileSrc(thumbPath.replace(/\\/g, "/"));
-        setUrl(convertedUrl);
-        thumbnailCache.set(cacheKey, convertedUrl);
-      }
-    } catch (error) {
-      console.error("Failed to load thumbnail:", error);
-    } finally {
-      setIsLoading(false);
-      loadingSet.delete(cacheKey);
-    }
-  }, [imageId, hash, imagePath, size, existingPath]);
-
+  // Intersection Observer：接近视口 200px 内才视为可见
   useEffect(() => {
-    loadThumbnail();
-  }, [loadThumbnail]);
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { root: null, rootMargin: "200px", threshold: 0 }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // 可见且滚动停止后才真正发起请求；带全局并发队列限制
+  useEffect(() => {
+    // 滚动中直接跳过，等滚动停止后由 isScrolling 变化再次触发
+    if (isScrolling) return;
+
+    // 未进入视口或未触发过，不加载
+    if (!isVisible || hasTriggered.current) return;
+    hasTriggered.current = true;
+
+    // 若全局缓存已有，直接展示，不走队列
+    if (urlCache.has(key)) {
+      setUrl(urlCache.get(key)!);
+      return;
+    }
+
+    let cancelled = false;
+
+    enqueue(async () => {
+      if (cancelled) return;
+      setIsLoading(true);
+      try {
+        const result = await fetchThumbnail(imageId, hash, imagePath, size, existingPath);
+        if (!cancelled) setUrl(result);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isVisible, isScrolling, imageId, hash, imagePath, size, existingPath]);
 
   const placeholderChar = fileName?.[0]?.toUpperCase() || "?";
 
-  // 加载中状态
-  if (isLoading) {
-    return (
-      <div
-        className={`bg-gray-100 flex flex-col items-center justify-center text-gray-400 ${className}`}
-      >
-        <Spinner size="tiny" />
-        <span className="text-xs mt-1">加载中...</span>
-      </div>
-    );
-  }
-
-  // 无缩略图状态（生成失败或仍在等待）
-  if (!url) {
-    return (
-      <div
-        className={`bg-gray-100 flex flex-col items-center justify-center text-gray-400 ${className}`}
-      >
-        <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center text-lg font-medium text-gray-500 mb-1">
-          {placeholderChar}
-        </div>
-        <span className="text-xs text-gray-400">加载异常</span>
-      </div>
-    );
-  }
-
-  // 正常显示缩略图
   return (
-    <img
-      src={url}
-      alt={fileName}
-      data-tooltip={fileName}
-      className={`object-cover ${imgClassName} ${className}`}
-      loading="lazy"
-    />
+    <div ref={containerRef} className={`w-full h-full ${className}`}>
+      {!isVisible ? (
+        // 未进入视口：纯色占位，不发起任何请求
+        <div className="w-full h-full bg-gray-100 dark:bg-gray-800" />
+      ) : isLoading ? (
+        <div className="w-full h-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-400">
+          <Spinner size="tiny" />
+        </div>
+      ) : !url ? (
+        <div className="w-full h-full bg-gray-100 dark:bg-gray-800 flex flex-col items-center justify-center text-gray-400">
+          {/* <div className="w-12 h-12 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-lg font-medium text-gray-500 dark:text-gray-300 mb-1">
+            {placeholderChar}
+          </div> */}
+          <span className="text-xs text-gray-400">正在加载</span>
+        </div>
+      ) : (
+        <img
+          src={url}
+          alt={fileName}
+          className={`w-full h-full object-cover ${imgClassName}`}
+          loading="lazy"
+        />
+      )}
+    </div>
   );
 }
 

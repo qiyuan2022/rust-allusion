@@ -58,6 +58,7 @@
         "minHeight": 600,
         "transparent": true,
         "shadow": true,
+        "decorations": false,
         "windowEffects": {
           "effects": ["mica"],
           "state": "active"
@@ -76,6 +77,10 @@
           "windows": ["main"],
           "permissions": [
             "core:default",
+            "core:window:allow-minimize",
+            "core:window:allow-toggle-maximize",
+            "core:window:allow-close",
+            "core:window:allow-is-maximized",
             "shell:allow-open",
             "dialog:default",
             "dialog:allow-open",
@@ -83,7 +88,9 @@
             "dialog:allow-ask",
             "dialog:allow-confirm",
             "fs:default",
-            "fs:allow-read-file"
+            "fs:allow-read-file",
+            "log:default",
+            "core:path:default"
           ]
         }
       ]

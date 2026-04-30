@@ -1,10 +1,14 @@
-import { useState, useRef, useEffect, KeyboardEvent } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Tag as TagType } from "../api/tags";
-import { AddRegular } from "@fluentui/react-icons";
 import {
-  Input,
-  tokens,
+  TagPicker,
+  TagPickerControl,
+  TagPickerInput,
+  TagPickerGroup,
+  TagPickerList,
+  TagPickerOption,
 } from "@fluentui/react-components";
+import { AddRegular } from "@fluentui/react-icons";
 import { TagBadge } from "./TagBadge";
 
 interface TagInputProps {
@@ -20,222 +24,154 @@ export function TagInput({
   onChange,
   placeholder = "输入标签名，回车添加...",
 }: TagInputProps) {
-  const [inputValue, setInputValue] = useState("");
-  const [isOpen, setIsOpen] = useState(false);
-  const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const [pendingNewTags, setPendingNewTags] = useState<{ name: string; color: string }[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState("");
+  // 用一个统一的数组来驱动 TagPicker 的 selectedOptions
+  const [allSelectedNames, setAllSelectedNames] = useState<string[]>([]);
+  // 仅在组件首次挂载时从外部同步，后续由用户交互驱动
+  const hasInitialized = useRef(false);
 
-  const selectedTags = availableTags.filter((tag) => selectedTagIds.includes(tag.id));
-  const unselectedTags = availableTags.filter((tag) => !selectedTagIds.includes(tag.id));
+  useEffect(() => {
+    if (hasInitialized.current) return;
+    if (selectedTagIds.length === 0) return;
 
-  const filteredTags = inputValue.trim()
-    ? unselectedTags.filter((tag) =>
-        tag.name.toLowerCase().includes(inputValue.toLowerCase())
-      )
-    : unselectedTags;
+    // 按 selectedTagIds 的顺序排序，而非 availableTags 的顺序
+    const tagMapLocal = new Map(availableTags.map((t) => [t.id, t.name]));
+    const existingNames = selectedTagIds
+      .map((id) => tagMapLocal.get(id))
+      .filter(Boolean) as string[];
+    if (existingNames.length > 0) {
+      setAllSelectedNames(existingNames);
+      hasInitialized.current = true;
+    }
+  }, [selectedTagIds, availableTags]);
 
+  // 根据 allSelectedNames 拆分为现有标签 ID 和新标签名
+  const resolveSelections = useCallback(
+    (names: string[]) => {
+      const tagIds: number[] = [];
+      const newNames: string[] = [];
+      for (const name of names) {
+        const existing = availableTags.find(
+          (t) => t.name.toLowerCase() === name.toLowerCase(),
+        );
+        if (existing) {
+          tagIds.push(existing.id);
+        } else {
+          newNames.push(name);
+        }
+      }
+      return { tagIds, newNames };
+    },
+    [availableTags],
+  );
+
+  // 未选中的标签（根据输入过滤）
+  const filteredOptions = useMemo(() => {
+    return availableTags.filter(
+      (tag) => !allSelectedNames.includes(tag.name),
+    );
+  }, [availableTags, allSelectedNames]);
+
+  const filteredAndQueried = useMemo(() => {
+    if (!query.trim()) return filteredOptions;
+    return filteredOptions.filter((tag) =>
+      tag.name.toLowerCase().includes(query.toLowerCase()),
+    );
+  }, [filteredOptions, query]);
+
+  // 是否存在可创建的新标签
   const isNewTag =
-    inputValue.trim() &&
+    query.trim() !== "" &&
     !availableTags.some(
-      (tag) => tag.name.toLowerCase() === inputValue.trim().toLowerCase()
+      (t) => t.name.toLowerCase() === query.trim().toLowerCase(),
     ) &&
-    !pendingNewTags.some(
-      (tag) => tag.name.toLowerCase() === inputValue.trim().toLowerCase()
+    !allSelectedNames.some(
+      (n) => n.toLowerCase() === query.trim().toLowerCase(),
     );
 
-  const addTag = (tagName: string) => {
-    const trimmedName = tagName.trim();
-    if (!trimmedName) return;
+  const handleOptionSelect = useCallback(
+    (
+      _e: unknown,
+      data: { selectedOptions: string[]; value?: string },
+    ) => {
+      if (!data.value) return;
 
-    const existingTag = availableTags.find(
-      (tag) => tag.name.toLowerCase() === trimmedName.toLowerCase()
-    );
+      const tagName = data.value;
+      const isAlreadySelected = allSelectedNames.includes(tagName);
 
-    if (existingTag) {
-      if (!selectedTagIds.includes(existingTag.id)) {
-        onChange([...selectedTagIds, existingTag.id], []);
-      }
-    } else {
-      // 检查是否已经在 pendingNewTags 中
-      const alreadyPending = pendingNewTags.some(
-        (tag) => tag.name.toLowerCase() === trimmedName.toLowerCase()
-      );
-      if (!alreadyPending) {
-        const newPendingTag = { name: trimmedName, color: "#3b82f6" };
-        setPendingNewTags((prev) => [...prev, newPendingTag]);
-        onChange([...selectedTagIds], [...pendingNewTags.map((t) => t.name), trimmedName]);
-      }
-    }
-
-    setInputValue("");
-    setIsOpen(false);
-    setHighlightedIndex(0);
-  };
-
-  const removeTag = (tagId: number) => {
-    onChange(
-      selectedTagIds.filter((id) => id !== tagId),
-      pendingNewTags.map((t) => t.name)
-    );
-  };
-
-  const removePendingTag = (tagName: string) => {
-    const updatedPending = pendingNewTags.filter((t) => t.name !== tagName);
-    setPendingNewTags(updatedPending);
-    onChange(selectedTagIds, updatedPending.map((t) => t.name));
-  };
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (isOpen && filteredTags.length > 0) {
-        addTag(filteredTags[highlightedIndex]?.name || inputValue);
+      let updatedNames: string[];
+      if (isAlreadySelected) {
+        // 取消选择 — 移除
+        updatedNames = allSelectedNames.filter((n) => n !== tagName);
       } else {
-        addTag(inputValue);
+        // 新增选择 — 追加到末尾（保持选择顺序）
+        updatedNames = [...allSelectedNames, tagName];
       }
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      if (!isOpen) {
-        setIsOpen(true);
-      }
-      setHighlightedIndex((prev) =>
-        prev < filteredTags.length - 1 ? prev + 1 : prev
-      );
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : 0));
-    } else if (e.key === "Escape") {
-      setIsOpen(false);
-      inputRef.current?.blur();
-    } else if (e.key === "Backspace" && !inputValue && selectedTagIds.length > 0) {
-      removeTag(selectedTagIds[selectedTagIds.length - 1]);
-    } else if (e.key === "Backspace" && !inputValue && pendingNewTags.length > 0) {
-      removePendingTag(pendingNewTags[pendingNewTags.length - 1].name);
-    }
-  };
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
+      setAllSelectedNames(updatedNames);
+      const { tagIds, newNames } = resolveSelections(updatedNames);
+      onChange(tagIds, newNames);
+      setQuery("");
+    },
+    [allSelectedNames, resolveSelections, onChange],
+  );
 
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    setHighlightedIndex(0);
-  }, [inputValue]);
-
-  // 当 availableTags 变化时，清理已经被创建成功的 pending tags
-  useEffect(() => {
-    setPendingNewTags((prev) =>
-      prev.filter(
-        (pending) =>
-          !availableTags.some(
-            (tag) => tag.name.toLowerCase() === pending.name.toLowerCase()
-          )
-      )
-    );
-  }, [availableTags]);
+  // 处理 Tag 的 dismiss（点击 X 按钮移除）
+  const handleDismiss = useCallback(
+    (name: string) => {
+      const updatedNames = allSelectedNames.filter((n) => n !== name);
+      setAllSelectedNames(updatedNames);
+      const { tagIds, newNames } = resolveSelections(updatedNames);
+      onChange(tagIds, newNames);
+    },
+    [allSelectedNames, resolveSelections, onChange],
+  );
 
   return (
-    <div ref={containerRef} className="relative">
-      {/* 标签+输入容器 */}
-      <div
-        className="min-h-[34px] px-2 py-1 flex flex-wrap gap-1.5 rounded"
-        style={{
-          border: `1px solid ${tokens.colorNeutralStroke1}`,
-          backgroundColor: tokens.colorNeutralBackground1,
-        }}
-      >
-        {selectedTags.map((tag) => (
-          <TagBadge
-            key={tag.id}
-            dismissible
-            onDismiss={() => removeTag(tag.id)}
-          >
-            {tag.name}
-          </TagBadge>
-        ))}
-        {pendingNewTags.map((tag) => (
-          <TagBadge
-            key={`pending-${tag.name}`}
-            dismissible
-            onDismiss={() => removePendingTag(tag.name)}
-          >
-            {tag.name}
-          </TagBadge>
-        ))}
-
-        <Input
-          ref={inputRef}
-          value={inputValue}
-          onChange={(_, data) => {
-            setInputValue(data.value);
-            setIsOpen(true);
-          }}
-          onClick={() => setIsOpen(true)}
-          onKeyDown={handleKeyDown}
-          placeholder={selectedTags.length === 0 && pendingNewTags.length === 0 ? placeholder : ""}
-          appearance="filled-lighter"
-          style={{
-            flex: 1,
-            minWidth: "120px",
-            backgroundColor: "transparent",
-          }}
-        />
-      </div>
-
-      {/* 下拉列表 */}
-      {isOpen && (filteredTags.length > 0 || isNewTag) && (
-        <div
-          className="absolute z-50 left-0 right-0 mt-1 rounded shadow-lg max-h-[200px] overflow-auto"
-          style={{
-            backgroundColor: tokens.colorNeutralBackground1,
-            border: `1px solid ${tokens.colorNeutralStroke1}`,
-          }}
-        >
-          {isNewTag && (
-            <button
-              type="button"
-              onClick={() => addTag(inputValue)}
-              className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-gray-700"
-              style={{ color: tokens.colorNeutralForeground1 }}
+    <TagPicker
+      selectedOptions={allSelectedNames}
+      onOptionSelect={handleOptionSelect}
+    >
+      <TagPickerControl>
+        <TagPickerGroup>
+          {allSelectedNames.map((name) => (
+            <TagBadge
+              key={name}
+              dismissible
+              onDismiss={() => handleDismiss(name)}
             >
+              {name}
+            </TagBadge>
+          ))}
+        </TagPickerGroup>
+        <TagPickerInput
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={allSelectedNames.length === 0 ? placeholder : ""}
+        />
+      </TagPickerControl>
+      <TagPickerList>
+        {isNewTag && (
+          <TagPickerOption value={query.trim()} text={query.trim()}>
+            <div className="flex items-center gap-2">
               <AddRegular className="w-4 h-4 text-primary-500" />
               <span>
-                新建标签 "<span className="font-medium">{inputValue.trim()}</span>"
+                新建标签 "
+                <span className="font-medium">{query.trim()}</span>"
               </span>
-            </button>
-          )}
-
-          {filteredTags.map((tag, index) => (
-            <button
-              key={tag.id}
-              type="button"
-              onClick={() => addTag(tag.name)}
-              className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${
-                index === highlightedIndex
-                  ? "bg-gray-100 dark:bg-gray-700"
-                  : "hover:bg-gray-100 dark:hover:bg-gray-700"
-              }`}
-              style={{ color: tokens.colorNeutralForeground1 }}
-            >
-              <span
-                className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ backgroundColor: tag.color || "#3b82f6" }}
-              />
-              <span>{tag.name}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+            </div>
+          </TagPickerOption>
+        )}
+        {filteredAndQueried.map((tag) => (
+          <TagPickerOption key={tag.id} value={tag.name} text={tag.name}>
+            <TagBadge>{tag.name}</TagBadge>
+          </TagPickerOption>
+        ))}
+        {filteredAndQueried.length === 0 && !isNewTag && (
+          <div className="px-3 py-2 text-sm text-gray-400">无匹配标签</div>
+        )}
+      </TagPickerList>
+    </TagPicker>
   );
 }
 

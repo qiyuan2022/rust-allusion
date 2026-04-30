@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Tag } from "../api/tags";
@@ -14,6 +14,7 @@ import {
   ArrowCounterclockwiseRegular,
   PanelRightRegular,
   PanelLeftRegular,
+  ArrowResetRegular,
 } from "@fluentui/react-icons";
 import {
   Button,
@@ -54,6 +55,10 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
   } | null>(null);
   const [showInfoPanel, setShowInfoPanel] = useState(true);
   const [scale, setScale] = useState(1);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   const updateImageTags = useGalleryStore((state) => state.updateImageTags);
 
   const loadImageDetail = useCallback(async () => {
@@ -95,7 +100,66 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
 
   useEffect(() => {
     setScale(1);
+    setPanOffset({ x: 0, y: 0 });
   }, [imageId]);
+
+  const handleResetView = () => {
+    setScale(1);
+    setPanOffset({ x: 0, y: 0 });
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (scale <= 1) return;
+    e.preventDefault();
+    setIsDragging(true);
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      offsetX: panOffset.x,
+      offsetY: panOffset.y,
+    };
+  };
+
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      setScale((prev) => {
+        const next = prev + delta;
+        return Math.max(0.1, Math.min(5, next));
+      });
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, [loading]);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragStartRef.current) return;
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      setPanOffset({
+        x: dragStartRef.current.offsetX + dx,
+        y: dragStartRef.current.offsetY + dy,
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      dragStartRef.current = null;
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDragging]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -234,20 +298,20 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
               size="small"
             />
           </Tooltip>
-          <Tooltip content="在文件夹中显示" relationship="label">
-            <Button
-              appearance="transparent"
-              icon={<FolderOpenRegular className="w-5 h-5" />}
-              onClick={() => invoke("show_in_folder", { path: image.path })}
-              size="small"
-            />
-          </Tooltip>
           <Tooltip content="删除" relationship="label">
             <Button
               appearance="transparent"
               icon={<DeleteRegular className="w-5 h-5" />}
               size="small"
               className="hover:!text-red-600 hover:!bg-red-50 dark:hover:!bg-red-900/20"
+            />
+          </Tooltip>
+          <Tooltip content="重置视图" relationship="label">
+            <Button
+              appearance="transparent"
+              icon={<ArrowResetRegular className="w-5 h-5" />}
+              onClick={handleResetView}
+              size="small"
             />
           </Tooltip>
           <div className="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1" />
@@ -272,23 +336,19 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
       <div className="flex-1 flex overflow-hidden">
         {/* 左侧图片预览 */}
         <div
+          ref={previewRef}
           className="flex-1 bg-gray-100 dark:bg-gray-950 flex items-center justify-center overflow-hidden"
-          onWheel={(e) => {
-            e.preventDefault();
-            const delta = e.deltaY > 0 ? -0.1 : 0.1;
-            setScale((prev) => {
-              const next = prev + delta;
-              return Math.max(0.1, Math.min(5, next));
-            });
-          }}
         >
           <img
             src={convertFileSrc(image.path.replace(/\\/g, "/"))}
             alt={image.file_name}
-            className="max-w-full max-h-full object-contain shadow-lg transition-transform duration-100"
+            className="max-w-full max-h-full object-contain shadow-lg"
+            onMouseDown={handleMouseDown}
             style={{
-              transform: `scale(${scale})`,
+              transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${scale})`,
               transformOrigin: "center center",
+              cursor: scale > 1 ? (isDragging ? "grabbing" : "grab") : "default",
+              transition: isDragging ? "none" : "transform 0.1s ease-out",
             }}
           />
         </div>
@@ -303,7 +363,8 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
             <div className="p-4">
               <Text
                 weight="semibold"
-                className="text-gray-900 dark:text-gray-100 mb-4 block"
+                className="text-gray-900 dark:text-gray-100"
+                style={{ display: "block", marginBottom: "8px" }}
               >
                 图片信息
               </Text>
@@ -344,19 +405,30 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
             <div className="px-4 py-3">
               <Text
                 weight="semibold"
-                className="text-gray-900 dark:text-gray-100 mb-3 block"
+                className="text-gray-900 dark:text-gray-100"
+                style={{ display: "block", marginBottom: "8px" }}
               >
                 文件路径
               </Text>
               <div className="flex gap-2">
-                <div className="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 rounded text-sm text-gray-600 dark:text-gray-300 truncate">
-                  {image.path}
-                </div>
+                <Tooltip content={image.path} relationship="label">
+                  <div className="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 rounded text-sm text-gray-600 dark:text-gray-300 truncate">
+                    {image.path}
+                  </div>
+                </Tooltip>
                 <Tooltip content="复制路径" relationship="label">
                   <Button
                     appearance="secondary"
                     icon={<CopyRegular fontSize={24} />}
                     onClick={() => navigator.clipboard.writeText(image.path)}
+                    size="medium"
+                  />
+                </Tooltip>
+                <Tooltip content="在文件夹中显示" relationship="label">
+                  <Button
+                    appearance="secondary"
+                    icon={<FolderOpenRegular fontSize={24} />}
+                    onClick={() => invoke("show_in_folder", { path: image.path })}
                     size="medium"
                   />
                 </Tooltip>
@@ -369,7 +441,8 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
             <div className="px-4 py-3">
               <Text
                 weight="semibold"
-                className="text-gray-900 dark:text-gray-100 mb-3 block"
+                className="text-gray-900 dark:text-gray-100"
+                style={{ display: "block", marginBottom: "8px" }}
               >
                 标签
               </Text>
@@ -393,7 +466,8 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
             <div className="px-4 py-3">
               <Text
                 weight="semibold"
-                className="text-gray-900 dark:text-gray-100 mb-3 block"
+                className="text-gray-900 dark:text-gray-100"
+                style={{ display: "block", marginBottom: "8px" }}
               >
                 缩略图调试
               </Text>
@@ -458,14 +532,37 @@ function InfoRow({
   truncate?: boolean;
   valueClassName?: string;
 }) {
+  const valueText = (
+    <Text
+      className={`text-gray-900 dark:text-gray-100 text-right ${valueClassName || ""}`}
+      style={
+        truncate
+          ? {
+              display: "block",
+              maxWidth: "180px",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }
+          : { display: "block", maxWidth: "180px" }
+      }
+    >
+      {value}
+    </Text>
+  );
+
   return (
     <div className="flex justify-between">
       <Text className="text-gray-500 dark:text-gray-400">{label}</Text>
-      <Text
-        className={`text-gray-900 dark:text-gray-100 text-right max-w-[180px] ${truncate ? "truncate" : ""} ${valueClassName || ""}`}
-      >
-        {value}
-      </Text>
+      {truncate ? (
+        <Tooltip content={value} relationship="label">
+          <span className="min-w-0 flex-1 flex justify-end overflow-hidden">
+            {valueText}
+          </span>
+        </Tooltip>
+      ) : (
+        valueText
+      )}
     </div>
   );
 }

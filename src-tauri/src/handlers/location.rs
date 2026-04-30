@@ -44,9 +44,15 @@ pub async fn create_location(
         }
     }
 
-    db::LocationRepository::create(&pool, req)
+    let location = db::LocationRepository::create(&pool, req)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // 启动文件监控
+    let path = Path::new(&location.path);
+    let _ = state.file_monitor.add_location(location.id, path, location.is_recursive).await;
+
+    Ok(location)
 }
 
 #[tauri::command]
@@ -71,6 +77,9 @@ pub async fn update_location(
 
 #[tauri::command]
 pub async fn delete_location(state: State<'_, crate::AppState>, id: i64) -> Result<bool, String> {
+    // 停止文件监控
+    let _ = state.file_monitor.remove_location(id).await;
+
     let pool = state.db.lock().await;
     db::LocationRepository::delete(&pool, id)
         .await
