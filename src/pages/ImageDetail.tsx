@@ -401,6 +401,31 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
 
             <Divider />
 
+            {/* 标签 */}
+            <div className="px-4 py-3">
+              <Text
+                weight="semibold"
+                className="text-gray-900 dark:text-gray-100"
+                style={{ display: "block", marginBottom: "8px" }}
+              >
+                标签
+              </Text>
+              <TagInput
+                availableTags={availableTags}
+                selectedTagIds={image.tags.map((t) => t.id)}
+                onChange={handleTagChange}
+                placeholder="添加标签..."
+              />
+              <Text
+                size={200}
+                className="text-gray-500 dark:text-gray-400 mt-2 block"
+              >
+                输入标签名后按回车添加，点击标签可删除
+              </Text>
+            </div>
+
+            <Divider />
+
             {/* 文件路径 */}
             <div className="px-4 py-3">
               <Text
@@ -433,31 +458,6 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
                   />
                 </Tooltip>
               </div>
-            </div>
-
-            <Divider />
-
-            {/* 标签 */}
-            <div className="px-4 py-3">
-              <Text
-                weight="semibold"
-                className="text-gray-900 dark:text-gray-100"
-                style={{ display: "block", marginBottom: "8px" }}
-              >
-                标签
-              </Text>
-              <TagInput
-                availableTags={availableTags}
-                selectedTagIds={image.tags.map((t) => t.id)}
-                onChange={handleTagChange}
-                placeholder="添加标签..."
-              />
-              <Text
-                size={200}
-                className="text-gray-500 dark:text-gray-400 mt-2 block"
-              >
-                输入标签名后按回车添加，点击标签可删除
-              </Text>
             </div>
 
             <Divider />

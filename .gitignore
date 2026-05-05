@@ -42,6 +42,7 @@ Cargo.lock
 src-tauri/target/
 src-tauri/Cargo.lock
 src-tauri/gen/
+src-tauri/vips-dlls
 
 # === IDE / Editors ===
 # VS Code

@@ -10,6 +10,7 @@ import {
 } from "@fluentui/react-components";
 import { AddRegular } from "@fluentui/react-icons";
 import { TagBadge } from "./TagBadge";
+// import { useGalleryStore } from "../stores/galleryStore";
 
 interface TagInputProps {
   availableTags: TagType[];
@@ -27,22 +28,14 @@ export function TagInput({
   const [query, setQuery] = useState("");
   // 用一个统一的数组来驱动 TagPicker 的 selectedOptions
   const [allSelectedNames, setAllSelectedNames] = useState<string[]>([]);
-  // 仅在组件首次挂载时从外部同步，后续由用户交互驱动
-  const hasInitialized = useRef(false);
 
+  // 从外部 selectedTagIds 同步到内部状态
   useEffect(() => {
-    if (hasInitialized.current) return;
-    if (selectedTagIds.length === 0) return;
-
-    // 按 selectedTagIds 的顺序排序，而非 availableTags 的顺序
     const tagMapLocal = new Map(availableTags.map((t) => [t.id, t.name]));
     const existingNames = selectedTagIds
       .map((id) => tagMapLocal.get(id))
       .filter(Boolean) as string[];
-    if (existingNames.length > 0) {
-      setAllSelectedNames(existingNames);
-      hasInitialized.current = true;
-    }
+    setAllSelectedNames(existingNames);
   }, [selectedTagIds, availableTags]);
 
   // 根据 allSelectedNames 拆分为现有标签 ID 和新标签名
@@ -79,6 +72,16 @@ export function TagInput({
     );
   }, [filteredOptions, query]);
 
+  // 按使用数量降序排序（后端已排序，但过滤后需要重新排序）
+  const sortedOptions = useMemo(() => {
+    return [...filteredAndQueried].sort((a, b) => {
+      const countA = a.image_count ?? 0;
+      const countB = b.image_count ?? 0;
+      if (countB !== countA) return countB - countA;
+      return a.name.localeCompare(b.name);
+    });
+  }, [filteredAndQueried]);
+
   // 是否存在可创建的新标签
   const isNewTag =
     query.trim() !== "" &&
@@ -111,7 +114,8 @@ export function TagInput({
       setAllSelectedNames(updatedNames);
       const { tagIds, newNames } = resolveSelections(updatedNames);
       onChange(tagIds, newNames);
-      setQuery("");
+      // 不在这里清空 query，让 TagPicker 内部处理输入值
+      // query 会在 onOpenChange 中或外部状态同步时清空
     },
     [allSelectedNames, resolveSelections, onChange],
   );
@@ -131,6 +135,8 @@ export function TagInput({
     <TagPicker
       selectedOptions={allSelectedNames}
       onOptionSelect={handleOptionSelect}
+      onOpenChange={(_e, data) => { if (!data.open) setQuery(""); }}
+      positioning={{ position: "below", pinned: true }}
     >
       <TagPickerControl>
         <TagPickerGroup>
@@ -150,9 +156,13 @@ export function TagInput({
           placeholder={allSelectedNames.length === 0 ? placeholder : ""}
         />
       </TagPickerControl>
-      <TagPickerList>
+      <TagPickerList style={{ maxHeight: 200, overflowY: 'auto' }}>
         {isNewTag && (
-          <TagPickerOption value={query.trim()} text={query.trim()}>
+          <TagPickerOption
+            value={query.trim()}
+            text={query.trim()}
+            className="!outline-none !border-0 !shadow-none !ring-0 focus:!outline-none focus-visible:!outline-none"
+          >
             <div className="flex items-center gap-2">
               <AddRegular className="w-4 h-4 text-primary-500" />
               <span>
@@ -162,12 +172,15 @@ export function TagInput({
             </div>
           </TagPickerOption>
         )}
-        {filteredAndQueried.map((tag) => (
+        {sortedOptions.map((tag) => (
           <TagPickerOption key={tag.id} value={tag.name} text={tag.name}>
-            <TagBadge>{tag.name}</TagBadge>
+            <div className="flex items-center justify-between w-full">
+              <TagBadge>{tag.name}</TagBadge>
+              <span className="text-xs text-gray-400 ml-2">{tag.image_count ?? 0}</span>
+            </div>
           </TagPickerOption>
         ))}
-        {filteredAndQueried.length === 0 && !isNewTag && (
+        {sortedOptions.length === 0 && !isNewTag && (
           <div className="px-3 py-2 text-sm text-gray-400">无匹配标签</div>
         )}
       </TagPickerList>

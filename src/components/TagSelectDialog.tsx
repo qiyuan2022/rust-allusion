@@ -49,19 +49,20 @@ export function TagSelectDialog({
   const totalTags = selectedIds.length + newTagNames.length;
 
   return (
-    <Dialog open={isOpen} onOpenChange={(_e, data) => data.open === false && onClose()}>
+    <Dialog open={isOpen} onOpenChange={(_e, data) => data.open === false && data.type !== "backdropClick" && onClose()}>
       <DialogSurface style={{ maxWidth: "450px", width: "100%", overflow: "visible" }}>
         <DialogTitle style={{ fontSize: "16px" }}>给 {imageCount} 张图片打标签</DialogTitle>
+        <br />
         <DialogContent style={{ overflow: "visible" }}>
           <TagInput
-            key={isOpen ? "open" : "closed"}
+            key={`${isOpen}-${initialSelectedIds.join(",")}`}
             availableTags={availableTags}
             selectedTagIds={selectedIds}
             onChange={handleTagChange}
             placeholder="输入标签名，回车添加..."
           />
           <Text className="text-xs text-gray-500 mt-2" block>
-            提示：输入标签名后按回车添加，点击标签可删除。若标签不存在将自动创建。
+            提示：标签为空时，将清除所有标签
           </Text>
         </DialogContent>
         <div className="flex items-center justify-between mt-3">

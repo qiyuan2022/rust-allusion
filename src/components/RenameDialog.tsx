@@ -47,7 +47,7 @@ export function RenameDialog({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(_e, data) => data.open === false && onClose()}>
+    <Dialog open={isOpen} onOpenChange={(_e, data) => data.open === false && data.type !== "backdropClick" && onClose()}>
       <DialogSurface style={{ maxWidth: "400px", width: "100%" }}>
         <DialogTitle style={{ fontSize: "16px" }}>重命名</DialogTitle>
         <DialogContent>

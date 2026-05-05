@@ -123,7 +123,7 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
   const styles = useStyles();
 
   return (
-    <Dialog open={isOpen} onOpenChange={(_e, data) => data.open === false && onClose()}>
+    <Dialog open={isOpen} onOpenChange={(_e, data) => data.open === false && data.type !== "backdropClick" && onClose()}>
       <DialogSurface className={styles.surface}>
         <div className={styles.container}>
           {/* 左侧 Tabs */}

@@ -10,6 +10,9 @@ pub struct Tag {
     pub color: String,
     pub created_at: i64,
     pub updated_at: i64,
+    #[serde(default)]
+    #[sqlx(default)]
+    pub image_count: i64,
 }
 
 /// 标签树节点（包含子标签）

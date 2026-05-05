@@ -31,7 +31,8 @@
       "signingIdentity": null
     },
     "resources": [
-      "migrations/**/*"
+      "migrations/**/*",
+      "vips-dlls/**/*"
     ],
     "shortDescription": "",
     "linux": {

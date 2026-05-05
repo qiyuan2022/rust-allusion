@@ -1,6 +1,6 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
 
@@ -36,21 +36,64 @@ extern "system" {
     fn SetDllDirectoryW(lpPathName: *const u16) -> i32;
 }
 
+/// 查找 vips DLL 目录（开发环境或打包后的资源目录）
+#[cfg(windows)]
+fn find_vips_dll_dir() -> Option<PathBuf> {
+    // 1. 优先使用环境变量
+    if let Ok(vips_path) = std::env::var("VIPS_PATH") {
+        let bin = PathBuf::from(vips_path).join("bin");
+        if bin.join("libvips-42.dll").exists() {
+            return Some(bin);
+        }
+    }
+
+    // 2. 检查开发环境固定路径
+    let dev_path = PathBuf::from(r"D:\dev_tools\vips-dev-8.18\bin");
+    if dev_path.join("libvips-42.dll").exists() {
+        return Some(dev_path);
+    }
+
+    // 3. 检查打包后的资源目录（相对于可执行文件）
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            // 方式 A: 直接放在可执行文件同级目录
+            if exe_dir.join("libvips-42.dll").exists() {
+                return Some(exe_dir.to_path_buf());
+            }
+            // 方式 B: 放在 vips-dlls 子目录
+            let bundled = exe_dir.join("vips-dlls");
+            if bundled.join("libvips-42.dll").exists() {
+                return Some(bundled);
+            }
+            // 方式 C: Tauri 资源目录结构
+            let resources = exe_dir.join("..").join("resources").join("vips-dlls");
+            if resources.join("libvips-42.dll").exists() {
+                return Some(resources.canonicalize().unwrap_or(resources));
+            }
+        }
+    }
+
+    None
+}
+
 /// 初始化 libvips（Windows 下会自动将 vips/bin 加入 DLL 搜索路径）
 pub fn initialize() -> Result<(), String> {
     #[cfg(windows)]
     {
-        let vips_bin = format!(
-            r"{}\bin",
-            std::env::var("VIPS_PATH")
-                .unwrap_or_else(|_| r"D:\dev_tools\vips-dev-8.18".to_string())
-        );
-        let wide: Vec<u16> = std::ffi::OsString::from(vips_bin)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        unsafe {
-            SetDllDirectoryW(wide.as_ptr());
+        match find_vips_dll_dir() {
+            Some(dir) => {
+                tracing::info!("Found vips DLL directory: {:?}", dir);
+                let wide: Vec<u16> = std::ffi::OsString::from(&dir)
+                    .encode_wide()
+                    .chain(std::iter::once(0))
+                    .collect();
+                unsafe {
+                    SetDllDirectoryW(wide.as_ptr());
+                }
+            }
+            None => {
+                tracing::warn!("Could not find vips DLL directory. Set VIPS_PATH env var or ensure DLLs are bundled.");
+            }
         }
     }
 

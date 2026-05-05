@@ -61,6 +61,7 @@ impl ImageWithTagsRow {
                         parent_id: None,
                         created_at: 0,
                         updated_at: 0,
+                        image_count: 0,
                     });
                 }
             }
@@ -127,6 +128,7 @@ impl ImageWithThumbnailRow {
                         parent_id: None,
                         created_at: 0,
                         updated_at: 0,
+                        image_count: 0,
                     });
                 }
             }

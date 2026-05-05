@@ -1,5 +1,5 @@
 use anyhow::{Result, Context};
-use sqlx::SqlitePool;
+use sqlx::{SqlitePool, Row};
 use std::collections::HashMap;
 
 use crate::models::{CreateTagRequest, Tag, TagTreeNode, UpdateTagRequest};
@@ -49,11 +49,36 @@ impl TagRepository {
         Ok(tag)
     }
     
-    /// 列出所有标签
+    /// 列出所有标签（按图片使用数量降序）
     pub async fn list_all(pool: &SqlitePool) -> Result<Vec<Tag>> {
-        let tags = sqlx::query_as::<_, Tag>("SELECT * FROM tags ORDER BY name")
-            .fetch_all(pool)
-            .await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT 
+                t.id,
+                t.name,
+                t.parent_id,
+                t.color,
+                t.created_at,
+                t.updated_at,
+                COUNT(it.image_hash) as image_count
+            FROM tags t
+            LEFT JOIN image_tags it ON t.id = it.tag_id
+            GROUP BY t.id
+            ORDER BY image_count DESC, t.name ASC
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+        
+        let tags = rows.into_iter().map(|row| Tag {
+            id: row.get("id"),
+            name: row.get("name"),
+            parent_id: row.get("parent_id"),
+            color: row.get("color"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+            image_count: row.get::<i64, _>("image_count"),
+        }).collect();
         
         Ok(tags)
     }

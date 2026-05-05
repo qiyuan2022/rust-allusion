@@ -83,7 +83,7 @@ export function ScanProgressDialog({
   const isScanning = phase === "scanning";
 
   return (
-    <Dialog open={isOpen} onOpenChange={(_e, data) => data.open === false && onCancel()}>
+    <Dialog open={isOpen} onOpenChange={(_e, data) => data.open === false && data.type !== "backdropClick" && onCancel()}>
       <DialogSurface style={{ maxWidth: "420px", width: "100%" }}>
         <DialogTitle
           style={{ fontSize: "16px" }}

@@ -26,7 +26,7 @@ export function DeleteConfirmDialog({
   const [deleteSourceFile, setDeleteSourceFile] = useState(false);
 
   return (
-    <Dialog open={isOpen} onOpenChange={(_e, data) => data.open === false && onClose()}>
+    <Dialog open={isOpen} onOpenChange={(_e, data) => data.open === false && data.type !== "backdropClick" && onClose()}>
       <DialogSurface>
         <DialogTitle style={{ fontSize: "16px" }}>确认删除</DialogTitle>
         <DialogContent>

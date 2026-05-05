@@ -7,6 +7,7 @@ export interface Tag {
   color: string;
   created_at: number;
   updated_at: number;
+  image_count?: number;
 }
 
 export interface TagTreeNode extends Tag {
