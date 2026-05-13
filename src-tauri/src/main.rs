@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{Manager};
+use tauri::{Emitter, Manager};
 use tokio::sync::{Mutex, RwLock};
 
 mod core;
@@ -211,6 +211,46 @@ fn main() {
                         // 启动后台索引任务
                         let indexing_worker = IndexingWorker::new(Arc::clone(&search_service));
                         indexing_worker.start();
+                        
+                        // 启动后台启动扫描任务（检测关闭期间的新增/删除文件）
+                        let startup_pool = pool.clone();
+                        let startup_thumbnail_service = Arc::clone(&thumbnail_service);
+                        let startup_search_service = Arc::clone(&search_service);
+                        let startup_app_handle = app_handle.clone();
+                        
+                        tokio::spawn(async move {
+                            use crate::core::startup_scanner::scan_all_locations_on_startup;
+                            
+                            // 稍微延迟，让前端先完成初始渲染
+                            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                            
+                            match scan_all_locations_on_startup(
+                                startup_pool,
+                                startup_thumbnail_service,
+                                startup_search_service,
+                            ).await {
+                                Ok(result) => {
+                                    if result.new_files > 0 || result.deleted_files > 0 {
+                                        tracing::info!(
+                                            "Startup scan detected changes: {} new, {} deleted",
+                                            result.new_files,
+                                            result.deleted_files
+                                        );
+                                        let _ = startup_app_handle.emit(
+                                            "startup-scan-completed",
+                                            serde_json::json!({
+                                                "newFiles": result.new_files,
+                                                "deletedFiles": result.deleted_files,
+                                                "failedImports": result.failed_imports,
+                                            }),
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!("Startup scan failed: {}", e);
+                                }
+                            }
+                        });
                         
                         // 启动文件监控事件处理后台任务
                         let file_monitor_clone = Arc::clone(&file_monitor);

@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 // 将 invoke 暴露到全局，方便在控制台调试
 (window as any).tauriInvoke = invoke;
@@ -151,6 +152,37 @@ function MainApp() {
   useEffect(() => {
     loadAllImages();
     loadSidebarData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 监听后台启动扫描完成事件，自动刷新数据
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+
+    const setupListener = async () => {
+      const unlisten = await listen("startup-scan-completed", (event) => {
+        const payload = event.payload as {
+          newFiles: number;
+          deletedFiles: number;
+          failedImports: number;
+        };
+        console.log(
+          `后台同步完成：新增 ${payload.newFiles} 张，移除 ${payload.deletedFiles} 张`
+        );
+        // 刷新图片列表和侧边栏数据
+        loadAllImages();
+        loadSidebarData();
+      });
+      unlistenFn = unlisten;
+    };
+
+    setupListener();
+
+    return () => {
+      if (unlistenFn) {
+        unlistenFn();
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

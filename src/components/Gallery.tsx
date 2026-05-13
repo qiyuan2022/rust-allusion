@@ -466,16 +466,11 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
                 )}
                 {hasTags && (
                   <div className="absolute bottom-0 left-0 right-0 px-2 py-1 flex flex-wrap gap-1">
-                    {image.tags!.slice(0, 3).map((tag, idx) => (
+                    {image.tags!.map((tag, idx) => (
                       <TagBadge key={`${image.id}-${tag.id}-${idx}`} tooltip={tag.name}>
                         {tag.name}
                       </TagBadge>
                     ))}
-                    {image.tags!.length > 3 && (
-                      <TagBadge key={`${image.id}-more`}>
-                        +{image.tags!.length - 3}
-                      </TagBadge>
-                    )}
                   </div>
                 )}
               </div>
@@ -586,16 +581,11 @@ export function Gallery({ onRefresh, onSidebarRefresh, availableTags = [] }: Gal
                 )}
                 {hasTags && (
                   <div className="absolute bottom-0 left-0 right-0 px-1.5 py-0.5 flex flex-wrap gap-1">
-                    {image.tags!.slice(0, 2).map((tag, idx) => (
+                    {image.tags!.map((tag, idx) => (
                       <TagBadge key={`${image.id}-${tag.id}-${idx}`} tooltip={tag.name}>
                         {tag.name}
                       </TagBadge>
                     ))}
-                    {image.tags!.length > 2 && (
-                      <TagBadge key={`${image.id}-more`}>
-                        +{image.tags!.length - 2}
-                      </TagBadge>
-                    )}
                   </div>
                 )}
               </div>

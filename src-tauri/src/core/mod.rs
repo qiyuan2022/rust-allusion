@@ -2,6 +2,7 @@ pub mod file_monitor;
 pub mod importer;
 pub mod search;
 pub mod search_service;
+pub mod startup_scanner;
 pub mod thumbnail;
 
 pub use file_monitor::FileMonitor;
