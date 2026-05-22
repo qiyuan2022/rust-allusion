@@ -60,12 +60,11 @@ function getColumnCount(viewSize: ViewSize): number {
 }
 
 // 计算行高（根据列数、容器宽度和尺寸模式）
-function getRowHeight(containerWidth: number, columns: number, viewSize: ViewSize): number {
+function getRowHeight(containerWidth: number, columns: number, _viewSize: ViewSize): number {
   const gap = 8;
   const padding = 16;
   const itemWidth = (containerWidth - padding * 2 - (columns - 1) * gap) / columns;
-  const sizeMultiplier = viewSize === "small" ? 0.7 : viewSize === "large" ? 1.5 : 1;
-  const itemHeight = itemWidth * 0.75 * sizeMultiplier; // aspect-[4/3] * 尺寸系数
+  const itemHeight = itemWidth * 0.75; // aspect-[4/3]
   return itemHeight + gap; // 加上下间距
 }
 

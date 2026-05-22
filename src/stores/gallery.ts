@@ -83,6 +83,37 @@ export interface GalleryState {
   createTag: (name: string, color?: string, parentId?: number | null) => Promise<number | null>;
 }
 
+const GALLERY_CONFIG_KEY = "gallery_config";
+
+interface PersistedGalleryConfig {
+  viewMode: ViewMode;
+  viewSize: ViewSize;
+  sortBy: GalleryState["sortBy"];
+  sortOrder: "asc" | "desc";
+}
+
+function loadPersistedConfig(): Partial<PersistedGalleryConfig> {
+  try {
+    const raw = localStorage.getItem(GALLERY_CONFIG_KEY);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch {
+    // ignore parse error
+  }
+  return {};
+}
+
+function savePersistedConfig(config: PersistedGalleryConfig) {
+  try {
+    localStorage.setItem(GALLERY_CONFIG_KEY, JSON.stringify(config));
+  } catch {
+    // ignore storage error
+  }
+}
+
+const persisted = loadPersistedConfig();
+
 const initialState = {
   images: [],
   allImages: [], // 存储所有图片元数据
@@ -91,15 +122,15 @@ const initialState = {
   hasMore: false,
   isLoading: false,
   isSearching: false,
-  viewMode: "justified" as ViewMode,
-  viewSize: "medium" as ViewSize,
+  viewMode: (persisted.viewMode ?? "justified") as ViewMode,
+  viewSize: (persisted.viewSize ?? "medium") as ViewSize,
   selectedIds: new Set<number>(),
   currentPage: 0,
   pageSize: 50,
   searchQuery: "",
   selectedTagIds: [],
-  sortBy: "modified_at" as const,
-  sortOrder: "desc" as const,
+  sortBy: (persisted.sortBy ?? "modified_at") as GalleryState["sortBy"],
+  sortOrder: (persisted.sortOrder ?? "desc") as "asc" | "desc",
   searchResultIds: [] as number[],
   searchVersion: 0,
   previewImageId: null,
@@ -159,8 +190,26 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
 
   setLoading: (loading) => set({ isLoading: loading }),
 
-  setViewMode: (mode) => set({ viewMode: mode }),
-  setViewSize: (size) => set({ viewSize: size }),
+  setViewMode: (mode) => {
+    set({ viewMode: mode });
+    const state = get();
+    savePersistedConfig({
+      viewMode: mode,
+      viewSize: state.viewSize,
+      sortBy: state.sortBy,
+      sortOrder: state.sortOrder,
+    });
+  },
+  setViewSize: (size) => {
+    set({ viewSize: size });
+    const state = get();
+    savePersistedConfig({
+      viewMode: state.viewMode,
+      viewSize: size,
+      sortBy: state.sortBy,
+      sortOrder: state.sortOrder,
+    });
+  },
 
   setSearchQuery: (query) => set((state) => ({ searchQuery: query, currentPage: 0, searchVersion: state.searchVersion + 1 })),
 
@@ -174,15 +223,42 @@ export const useGalleryStore = create<GalleryState>((set, get) => ({
       return { selectedTagIds: newIds, currentPage: 0, searchVersion: state.searchVersion + 1 };
     }),
 
-  setSortBy: (sort) => set({ sortBy: sort, currentPage: 0 }),
-  
-  setSortOrder: (order) => set({ sortOrder: order, currentPage: 0 }),
-  
+  setSortBy: (sort) => {
+    set({ sortBy: sort, currentPage: 0 });
+    const state = get();
+    savePersistedConfig({
+      viewMode: state.viewMode,
+      viewSize: state.viewSize,
+      sortBy: sort,
+      sortOrder: state.sortOrder,
+    });
+  },
+
+  setSortOrder: (order) => {
+    set({ sortOrder: order, currentPage: 0 });
+    const state = get();
+    savePersistedConfig({
+      viewMode: state.viewMode,
+      viewSize: state.viewSize,
+      sortBy: state.sortBy,
+      sortOrder: order,
+    });
+  },
+
   toggleSortOrder: () =>
-    set((state) => ({
-      sortOrder: state.sortOrder === "asc" ? "desc" : "asc",
-      currentPage: 0,
-    })),
+    set((state) => {
+      const newOrder = state.sortOrder === "asc" ? "desc" : "asc";
+      savePersistedConfig({
+        viewMode: state.viewMode,
+        viewSize: state.viewSize,
+        sortBy: state.sortBy,
+        sortOrder: newOrder,
+      });
+      return {
+        sortOrder: newOrder,
+        currentPage: 0,
+      };
+    }),
 
   selectImage: (id, multi = false) =>
     set((state) => {

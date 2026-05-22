@@ -75,6 +75,7 @@ fn main() {
             get_all_images,
             count_images,
             delete_image,
+            get_image_preview_path,
             // 标签命令
             create_tag,
             get_all_tags,
@@ -128,6 +129,9 @@ fn main() {
             clear_tags_from_images,
             delete_images,
             show_in_folder,
+            // 壁纸命令
+            get_primary_monitor_info,
+            set_wallpaper,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

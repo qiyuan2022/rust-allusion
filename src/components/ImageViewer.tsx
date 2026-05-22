@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useGalleryStore } from "../stores/gallery";
+import { getImagePreviewUrl } from "../api/thumbnail";
 import { Button, Text, Divider, Tooltip } from "@fluentui/react-components";
 import {
   DismissRegular,
@@ -12,10 +13,24 @@ import {
 export function ImageViewer() {
   const store = useGalleryStore();
   const [showInfo, setShowInfo] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const currentImage = store.images.find(
     (img) => img.id === store.previewImageId
   );
+
+  // 当切换图片时，获取预览 URL（HEIF/HEIC 会自动转换）
+  useEffect(() => {
+    if (!currentImage) {
+      setPreviewUrl(null);
+      return;
+    }
+    let cancelled = false;
+    getImagePreviewUrl(currentImage.path).then((url) => {
+      if (!cancelled) setPreviewUrl(url);
+    });
+    return () => { cancelled = true; };
+  }, [currentImage?.id, currentImage?.path]);
 
   const currentIndex = store.images.findIndex(
     (img) => img.id === store.previewImageId
@@ -107,7 +122,7 @@ export function ImageViewer() {
 
           {/* 图片 */}
           <img
-            src={convertFileSrc(currentImage.path.replace(/\\/g, '/'))}
+            src={previewUrl || convertFileSrc(currentImage.path.replace(/\\/g, '/'))}
             alt={currentImage.file_name}
             className="max-w-full max-h-full object-contain"
           />
@@ -141,6 +156,10 @@ export function ImageViewer() {
                   src={convertFileSrc(img.path.replace(/\\/g, '/'))}
                   alt={img.file_name}
                   className="w-full h-full object-cover"
+                  onError={(e) => {
+                    // HEIF 缩略图加载失败时显示占位符
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
                 />
               </button>
             ))}

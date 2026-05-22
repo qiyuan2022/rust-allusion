@@ -54,6 +54,9 @@ futures = "0.3"
 path-clean = "1.0"
 dirs = "5.0"
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_UI_WindowsAndMessaging"] }
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

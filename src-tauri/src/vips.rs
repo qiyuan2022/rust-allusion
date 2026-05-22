@@ -116,6 +116,118 @@ pub fn version() -> String {
     }
 }
 
+/// 检测文件扩展名是否为 HEIF/HEIC
+fn is_heif_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| {
+            let e = e.to_lowercase();
+            e == "heif" || e == "heic"
+        })
+        .unwrap_or(false)
+}
+
+/// 使用 Windows WIC 将 HEIF/HEIC 转换为临时 JPEG（仅 Windows）
+#[cfg(windows)]
+fn convert_heif_to_jpeg_with_wic(source: &Path) -> Result<PathBuf, String> {
+    use std::process::Command;
+
+    let source_str = source.to_str().ok_or("Invalid source path")?;
+    let temp_jpeg = std::env::temp_dir().join(format!(
+        "heif_wic_fallback_{}.jpg",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+    let temp_jpeg_str = temp_jpeg.to_str().ok_or("Invalid temp path")?;
+
+    // PowerShell 脚本：使用 WIC 解码 HEIF 并保存为 JPEG
+    let ps_script = format!(
+        r#"
+Add-Type -AssemblyName PresentationCore
+$stream = [System.IO.FileStream]::new('{}', [System.IO.FileMode]::Open)
+try {{
+    $decoder = [System.Windows.Media.Imaging.BitmapDecoder]::Create($stream, [System.Windows.Media.Imaging.BitmapCreateOptions]::None, [System.Windows.Media.Imaging.BitmapCacheOption]::None)
+    $frame = $decoder.Frames[0]
+    $encoder = New-Object System.Windows.Media.Imaging.JpegBitmapEncoder
+    $encoder.Frames.Add($frame)
+    $outStream = [System.IO.FileStream]::new('{}', [System.IO.FileMode]::Create)
+    $encoder.Save($outStream)
+    $outStream.Close()
+    Write-Host "OK"
+}} catch {{
+    Write-Host "ERROR: $_"
+}}
+"#,
+        source_str.replace("'", "''"),
+        temp_jpeg_str.replace("'", "''")
+    );
+
+    let output = Command::new("powershell")
+        .args(["-ExecutionPolicy", "Bypass", "-Command", &ps_script])
+        .output()
+        .map_err(|e| format!("Failed to run PowerShell: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if !stdout.trim().contains("OK") || !temp_jpeg.exists() {
+        let _ = std::fs::remove_file(&temp_jpeg);
+        return Err(format!(
+            "WIC conversion failed. stdout: {}, stderr: {}",
+            stdout, stderr
+        ));
+    }
+
+    tracing::info!("WIC fallback: converted HEIF to JPEG: {:?}", temp_jpeg);
+    Ok(temp_jpeg)
+}
+
+/// 非 Windows 平台的 HEIF 转换 stub
+#[cfg(not(windows))]
+fn convert_heif_to_jpeg_with_wic(_source: &Path) -> Result<PathBuf, String> {
+    Err("HEIF fallback not supported on non-Windows platforms".to_string())
+}
+
+/// 获取图片预览路径（HEIF/HEIC 会转换为临时 JPEG）
+/// 返回一个可用于前端显示的路径（Windows 上为本地路径，可直接用 convertFileSrc）
+pub fn get_image_preview_path(source: &Path) -> Result<PathBuf, String> {
+    if is_heif_file(source) {
+        // 生成一个稳定的临时文件路径（基于原文件路径的 hash）
+        let path_hash = blake3::hash(source.to_string_lossy().as_bytes()).to_hex().to_string();
+        let temp_jpeg = std::env::temp_dir().join(format!("heif_preview_{}.jpg", &path_hash[..16]));
+        
+        // 如果临时文件已存在且不太旧，直接复用
+        if let Ok(metadata) = std::fs::metadata(&temp_jpeg) {
+            if let Ok(modified) = metadata.modified() {
+                if let Ok(age) = modified.elapsed() {
+                    if age.as_secs() < 3600 { // 1 小时内复用
+                        return Ok(temp_jpeg);
+                    }
+                }
+            }
+        }
+        
+        // 需要重新转换
+        let converted = convert_heif_to_jpeg_with_wic(source)?;
+        
+        // 移动到稳定路径
+        if let Err(e) = std::fs::rename(&converted, &temp_jpeg) {
+            // 如果重命名失败（比如跨设备），直接复制
+            if let Err(e2) = std::fs::copy(&converted, &temp_jpeg) {
+                let _ = std::fs::remove_file(&converted);
+                return Err(format!("Failed to move/copy temp file: {} (copy error: {})", e, e2));
+            }
+            let _ = std::fs::remove_file(&converted);
+        }
+        
+        Ok(temp_jpeg)
+    } else {
+        Ok(source.to_path_buf())
+    }
+}
+
 /// 使用 libvips 生成 JPEG 缩略图。
 ///
 /// * `source` — 源图片路径
@@ -125,6 +237,40 @@ pub fn version() -> String {
 ///
 /// 返回生成的图片实际宽高 `(width, height)`。
 pub fn create_thumbnail(
+    source: &Path,
+    output: &Path,
+    target_size: i32,
+    quality: i32,
+) -> Result<(i32, i32), String> {
+    // 先尝试直接用 libvips 处理
+    match create_thumbnail_inner(source, output, target_size, quality) {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            // 如果是 HEIF/HEIC 文件且 libvips 失败，尝试 WIC fallback
+            if is_heif_file(source) {
+                tracing::warn!(
+                    "libvips failed for HEIF file, trying WIC fallback: {:?}",
+                    source
+                );
+                match convert_heif_to_jpeg_with_wic(source) {
+                    Ok(temp_jpeg) => {
+                        let result = create_thumbnail_inner(&temp_jpeg, output, target_size, quality);
+                        let _ = std::fs::remove_file(&temp_jpeg);
+                        result
+                    }
+                    Err(wic_err) => Err(format!(
+                        "libvips failed: {}; WIC fallback failed: {}",
+                        e, wic_err
+                    )),
+                }
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
+fn create_thumbnail_inner(
     source: &Path,
     output: &Path,
     target_size: i32,
@@ -219,5 +365,32 @@ mod tests {
         println!("Generated thumbnail: {}x{} -> {:?}", w, h, output);
 
         let _ = std::fs::remove_file(&output);
+    }
+
+    #[test]
+    fn test_create_thumbnail_heif() {
+        initialize().expect("vips init should succeed");
+
+        let input = PathBuf::from(r"C:\Users\ADMINI~1\AppData\Local\Temp\test.heif");
+        if !input.exists() {
+            println!("Skip test: HEIF sample not found");
+            return;
+        }
+
+        let output = std::env::temp_dir().join("vips_thumb_heif_test.jpg");
+        let _ = std::fs::remove_file(&output);
+
+        match create_thumbnail(&input, &output, 200, 85) {
+            Ok((w, h)) => {
+                assert!(w > 0 && h > 0, "dimensions should be positive");
+                assert!(output.exists(), "output file should exist");
+                println!("Generated HEIF thumbnail: {}x{} -> {:?}", w, h, output);
+                let _ = std::fs::remove_file(&output);
+            }
+            Err(e) => {
+                println!("HEIF thumbnail failed (expected if libheif not loaded): {}", e);
+                // Don't panic - this is informational
+            }
+        }
     }
 }

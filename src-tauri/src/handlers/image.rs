@@ -172,3 +172,17 @@ pub async fn delete_image(state: State<'_, crate::AppState>, id: i64) -> Result<
         .await
         .map_err(|e| e.to_string())
 }
+
+/// 获取图片预览路径（HEIF/HEIC 会自动转换为 JPEG）
+#[tauri::command]
+pub async fn get_image_preview_path(image_path: String) -> Result<String, String> {
+    let path = std::path::Path::new(&image_path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", image_path));
+    }
+    
+    match crate::vips::get_image_preview_path(path) {
+        Ok(preview_path) => Ok(preview_path.to_string_lossy().to_string()),
+        Err(e) => Err(e),
+    }
+}

@@ -4,6 +4,7 @@ pub mod search;
 pub mod search_service;
 pub mod startup_scanner;
 pub mod thumbnail;
+pub mod wallpaper;
 
 pub use file_monitor::FileMonitor;
 pub use importer::{ImageImporter, ImportProgress, ImportPhase};

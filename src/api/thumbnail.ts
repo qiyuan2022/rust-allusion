@@ -1,5 +1,8 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 
+const previewPathCache = new Map<string, string>();
+const previewPromiseCache = new Map<string, Promise<string>>();
+
 export type ThumbnailSize = "small" | "medium" | "large";
 
 export interface ThumbnailStatus {
@@ -145,6 +148,48 @@ export async function getOrGenerateThumbnailByHash(
 export function getThumbnailUrl(path: string): string {
   // 使用 Tauri 的 convertFileSrc 将本地路径转换为可访问的 URL
   // 将 Windows 反斜杠转换为正斜杠
+  return convertFileSrc(path.replace(/\\/g, '/'));
+}
+
+/**
+ * 获取图片预览路径（HEIF/HEIC 会自动转换为 JPEG）
+ * @param imagePath 原图路径
+ * @returns 可用于前端显示的路径（HEIF 会返回转换后的 JPEG 路径）
+ */
+export async function getImagePreviewPath(imagePath: string): Promise<string> {
+  // 非 HEIF 文件直接返回原路径
+  const ext = imagePath.split('.').pop()?.toLowerCase();
+  if (ext !== 'heif' && ext !== 'heic') {
+    return imagePath;
+  }
+  
+  // 检查缓存
+  if (previewPathCache.has(imagePath)) {
+    return previewPathCache.get(imagePath)!;
+  }
+  if (previewPromiseCache.has(imagePath)) {
+    return previewPromiseCache.get(imagePath)!;
+  }
+  
+  const promise = invoke<string>("get_image_preview_path", { imagePath });
+  previewPromiseCache.set(imagePath, promise);
+  
+  try {
+    const path = await promise;
+    previewPathCache.set(imagePath, path);
+    return path;
+  } finally {
+    previewPromiseCache.delete(imagePath);
+  }
+}
+
+/**
+ * 获取图片预览 URL（自动处理 HEIF/HEIC 转换）
+ * @param imagePath 原图路径
+ * @returns 可用于 img src 的 URL
+ */
+export async function getImagePreviewUrl(imagePath: string): Promise<string> {
+  const path = await getImagePreviewPath(imagePath);
   return convertFileSrc(path.replace(/\\/g, '/'));
 }
 

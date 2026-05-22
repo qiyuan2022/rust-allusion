@@ -4,7 +4,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { Tag } from "../api/tags";
 import { TagInput } from "../components/TagInput";
 import { useGalleryStore } from "../stores/gallery";
-import { generateThumbnail, ThumbnailResult } from "../api/thumbnail";
+import { generateThumbnail, ThumbnailResult, getImagePreviewUrl } from "../api/thumbnail";
 import {
   ChevronLeftRegular,
   HeartRegular,
@@ -15,6 +15,7 @@ import {
   PanelRightRegular,
   PanelLeftRegular,
   ArrowResetRegular,
+  DesktopRegular,
 } from "@fluentui/react-icons";
 import {
   Button,
@@ -23,6 +24,7 @@ import {
   Divider,
   Tooltip,
 } from "@fluentui/react-components";
+import { WallpaperCropDialog } from "../components/WallpaperCropDialog";
 
 interface ImageDetailProps {
   imageId: number;
@@ -46,6 +48,7 @@ interface ImageDetailData {
 
 export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
   const [image, setImage] = useState<ImageDetailData | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
@@ -54,6 +57,7 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
     duration: number;
   } | null>(null);
   const [showInfoPanel, setShowInfoPanel] = useState(true);
+  const [cropDialogOpen, setCropDialogOpen] = useState(false);
   const [scale, setScale] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -68,6 +72,12 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
         imageId,
       });
       setImage(result);
+      
+      // 加载预览 URL（HEIF/HEIC 会自动转换）
+      if (result) {
+        const url = await getImagePreviewUrl(result.path);
+        setPreviewUrl(url);
+      }
     } catch (error) {
       console.error("Failed to load image detail:", error);
     } finally {
@@ -291,6 +301,14 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
         </Button>
 
         <div className="flex items-center gap-1">
+          <Tooltip content="设为桌面背景" relationship="label">
+            <Button
+              appearance="transparent"
+              icon={<DesktopRegular fontSize={24} />}
+              size="medium"
+              onClick={() => setCropDialogOpen(true)}
+            />
+          </Tooltip>
           <Tooltip content="收藏" relationship="label">
             <Button
               appearance="transparent"
@@ -340,7 +358,7 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
           className="flex-1 bg-gray-100 dark:bg-gray-950 flex items-center justify-center overflow-hidden"
         >
           <img
-            src={convertFileSrc(image.path.replace(/\\/g, "/"))}
+            src={previewUrl || convertFileSrc(image.path.replace(/\\/g, "/"))}
             alt={image.file_name}
             className="max-w-full max-h-full object-contain shadow-lg"
             onMouseDown={handleMouseDown}
@@ -517,6 +535,18 @@ export function ImageDetail({ imageId, onClose }: ImageDetailProps) {
           </div>
         </div>
       </div>
+
+      {/* 壁纸裁剪对话框 */}
+      {image && image.width && image.height && (
+        <WallpaperCropDialog
+          open={cropDialogOpen}
+          imageUrl={previewUrl || convertFileSrc(image.path.replace(/\\/g, "/"))}
+          imagePath={image.path}
+          imageWidth={image.width}
+          imageHeight={image.height}
+          onClose={() => setCropDialogOpen(false)}
+        />
+      )}
     </div>
   );
 }

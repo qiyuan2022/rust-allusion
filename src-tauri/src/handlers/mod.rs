@@ -8,6 +8,7 @@ pub mod thumbnail;
 pub mod search;
 pub mod misc;
 pub mod settings;
+pub mod wallpaper;
 
 // 重新导出所有命令处理函数
 pub use image::*;
@@ -18,3 +19,4 @@ pub use thumbnail::*;
 pub use search::*;
 pub use misc::*;
 pub use settings::*;
+pub use wallpaper::*;
