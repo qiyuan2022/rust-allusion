@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use tauri::Manager;
 
 /// 获取主显示器信息
 #[tauri::command]
@@ -28,6 +29,7 @@ pub async fn get_primary_monitor_info(
 /// - crop_width, crop_height: 裁剪区域宽高（像素）
 #[tauri::command]
 pub async fn set_wallpaper(
+    app_handle: tauri::AppHandle,
     image_path: String,
     crop_x: u32,
     crop_y: u32,
@@ -45,13 +47,22 @@ pub async fn set_wallpaper(
         crate::core::wallpaper::get_source_path_for_processing(source)
             .map_err(|e| format!("Failed to process source image: {}", e))?;
 
-    // 生成临时文件路径（用于壁纸）
-    let temp_wallpaper = std::env::temp_dir().join("rust_allusion_wallpaper.jpg");
+    // 生成壁纸文件路径（使用 Tauri 应用数据目录下的 wallpaper 子目录）
+    let wallpaper_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?
+        .join("wallpaper");
+
+    std::fs::create_dir_all(&wallpaper_dir)
+        .map_err(|e| format!("Failed to create wallpaper dir: {}", e))?;
+
+    let wallpaper_path = wallpaper_dir.join("wallpaper.bmp");
 
     // 裁剪并保存
     crate::core::wallpaper::crop_and_save(
         &processing_source,
-        &temp_wallpaper,
+        &wallpaper_path,
         crop_x,
         crop_y,
         crop_width,
@@ -60,14 +71,15 @@ pub async fn set_wallpaper(
     .map_err(|e| format!("Failed to crop image: {}", e))?;
 
     // 设置为桌面壁纸
-    crate::core::wallpaper::set_desktop_wallpaper(&temp_wallpaper)
+    crate::core::wallpaper::set_desktop_wallpaper(&wallpaper_path)
         .map_err(|e| format!("Failed to set wallpaper: {}", e))?;
 
     tracing::info!(
-        "Wallpaper set successfully: {}x{} from {:?}",
+        "Wallpaper set successfully: {}x{} from {:?} -> {:?}",
         crop_width,
         crop_height,
-        source
+        source,
+        wallpaper_path
     );
 
     Ok(())
