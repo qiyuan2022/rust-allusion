@@ -41,7 +41,7 @@ notify = { version = "6.1", default-features = false, features = ["macos_fsevent
 blake3 = "1.5"
 
 # Image processing
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
 kamadak-exif = "0.6"
 
 # Search engine
@@ -55,7 +55,7 @@ path-clean = "1.0"
 dirs = "5.0"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.52", features = ["Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [features]
 default = ["custom-protocol"]
